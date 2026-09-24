@@ -1,0 +1,66 @@
+# Blueprint Render — décrit l'infrastructure du service en un seul fichier.
+#
+# Utilisation : sur render.com, « New » → « Blueprint », puis choisir ce dépôt.
+# Render lit ce fichier et crée le service web et la base de données.
+#
+# Les valeurs marquées `sync: false` sont à renseigner à la main dans le
+# tableau de bord : elles ne doivent pas figurer dans le dépôt.
+
+databases:
+  - name: mutuelle-sante-db
+    databaseName: mutuelle_sante
+    user: mutuelle_app
+    # `free` est supprimée au bout de 30 jours : passer à `basic-256mb` ou
+    # au-delà avant toute mise en service réelle.
+    plan: free
+    region: frankfurt
+
+services:
+  - type: web
+    name: mutuelle-sante
+    runtime: python
+    region: frankfurt
+    # Un plan payant est nécessaire pour attacher un disque persistant, et
+    # évite la mise en veille au bout de 15 minutes d'inactivité.
+    plan: starter
+    branch: main
+    rootDir: backend
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60"
+    healthCheckPath: /sante/
+
+    # Disque des justificatifs (ordonnances, actes de naissance). Sans lui, tout
+    # fichier déposé serait effacé au déploiement suivant.
+    disk:
+      name: justificatifs
+      mountPath: /var/data/media
+      sizeGB: 5
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DEBUG
+        value: "False"
+      # Render génère une valeur aléatoire à la création, et ne la réaffiche pas.
+      - key: SECRET_KEY
+        generateValue: true
+      # Rattache la base ci-dessus : Render injecte l'URL de connexion.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mutuelle-sante-db
+          property: connectionString
+      - key: MEDIA_ROOT
+        value: /var/data/media
+      # Le domaine du service est ajouté automatiquement aux hôtes autorisés
+      # par settings.py ; cette variable sert à déclarer un domaine personnalisé.
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      # Compte administrateur créé au premier déploiement, puis ignoré.
+      - key: ADMIN_MATRICULE
+        sync: false
+      - key: ADMIN_MOT_DE_PASSE
+        sync: false

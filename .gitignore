@@ -61,3 +61,11 @@ mobile/android/key.properties
 *~
 .DS_Store
 Thumbs.db
+
+# Fichiers statiques rassemblés par collectstatic : régénérés à chaque
+# déploiement, ils n'ont pas à être versionnés.
+backend/staticfiles/
+
+# Export de reprise des données vers la base de production : contient des
+# données nominatives.
+donnees_a_reprendre.json

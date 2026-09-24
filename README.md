@@ -327,7 +327,102 @@ détermine l'URL du back-office :
   répartition 80/20 pendant la saisie. Envoyé à l'API qui applique
   immédiatement la détection de doublon.
 
-## 3. Prochaines étapes (suite du cahier des charges)
+## 3. Mise en ligne sur Render
+
+L'infrastructure est décrite dans [`render.yaml`](render.yaml) : Render lit ce
+fichier et crée lui-même le service web, la base PostgreSQL et le disque des
+justificatifs. Rien n'est à cliquer, hormis les secrets.
+
+### Ce qui change par rapport au poste de développement
+
+| | Développement | Render |
+|---|---|---|
+| Base | MySQL local (`DB_*` dans `.env`) | PostgreSQL, via `DATABASE_URL` |
+| Statiques | servis par Django en mode debug | WhiteNoise, versionnés et compressés |
+| Justificatifs | `backend/media/` | disque persistant monté sur `/var/data/media` |
+| Serveur | `runserver` | gunicorn, 2 processus |
+
+Le choix du moteur se fait au démarrage, d'après la présence de `DATABASE_URL` :
+**le code est identique dans les deux cas**, il n'y a pas de branche
+« production » à maintenir.
+
+### 1. Créer les services
+
+1. Sur render.com : **New → Blueprint**, puis choisir le dépôt
+   `Alhadhur/mutuellemwali`.
+2. Render détecte `render.yaml` et propose le service et la base. Valider.
+3. Renseigner les variables marquées à remplir à la main :
+
+| Variable | Valeur |
+|---|---|
+| `ADMIN_MATRICULE` | le matricule du premier compte administrateur |
+| `ADMIN_MOT_DE_PASSE` | un mot de passe solide, **utilisé une seule fois** |
+| `ALLOWED_HOSTS` | à laisser vide, sauf domaine personnalisé |
+| `CSRF_TRUSTED_ORIGINS` | idem |
+| `CORS_ALLOWED_ORIGINS` | uniquement si l'application mobile est servie sur le web |
+
+`SECRET_KEY` est générée par Render ; elle n'a pas à être saisie ni conservée.
+
+Le compte administrateur est créé au premier déploiement puis **plus jamais
+touché** : un mot de passe changé depuis l'interface n'est pas réécrit au
+déploiement suivant. Le changer dès la première connexion, puis vider
+`ADMIN_MOT_DE_PASSE` dans le tableau de bord.
+
+### 2. Reprendre les données existantes
+
+Depuis le poste de développement, avec la base MySQL en service :
+
+```bash
+cd backend
+./venv/bin/python manage.py dumpdata \
+    --natural-foreign --natural-primary \
+    --exclude contenttypes --exclude auth.permission \
+    --exclude sessions.session --exclude admin.logentry \
+    --indent 2 -o donnees_a_reprendre.json
+```
+
+Puis, depuis un shell Render (onglet **Shell** du service) après avoir téléversé
+le fichier, ou en local en pointant `DATABASE_URL` sur la base Render :
+
+```bash
+DATABASE_URL="<External Database URL fournie par Render>" \
+    ./venv/bin/python manage.py loaddata donnees_a_reprendre.json
+```
+
+Le fichier contient des données nominatives : il est exclu du dépôt par
+`.gitignore`, et doit être supprimé une fois la reprise faite.
+
+Les justificatifs déjà déposés (`backend/media/`) sont à recopier séparément
+vers le disque monté, l'export JSON ne contient que les chemins.
+
+### 3. Pointer l'application mobile sur le serveur
+
+L'adresse n'est plus dans le code : elle est fournie à la compilation, ce qui
+évite de livrer un binaire pointant sur un poste de développement.
+
+```bash
+cd mobile
+flutter build apk --release \
+    --dart-define=API_BASE_URL=https://<votre-service>.onrender.com/api
+```
+
+### Points de vigilance
+
+- **Le plan gratuit ne convient pas à un usage réel.** La base PostgreSQL
+  gratuite est supprimée au bout de 30 jours, et un service gratuit s'endort
+  après 15 minutes sans trafic — le premier appel de la matinée attendrait
+  environ une minute. Le disque persistant exige de toute façon un plan payant.
+- **Le disque n'est pas la base.** Render sauvegarde automatiquement la base de
+  données, pas le disque. Prévoir une copie régulière des justificatifs.
+- **HSTS** (`SECURE_HSTS_SECONDS`) est laissé à 0 par défaut. Ne l'activer
+  qu'une fois le domaine définitivement en HTTPS : un navigateur mémorise la
+  consigne pour toute la durée indiquée.
+- **Données de santé.** L'application héberge des ordonnances et des actes de
+  naissance nominatifs. Le choix de la région (`frankfurt` dans `render.yaml`),
+  la durée de conservation et les accès relèvent d'une décision de la mutuelle,
+  pas d'un réglage technique.
+
+## 4. Prochaines étapes (suite du cahier des charges)
 
 - **Phase 2** : peupler le réseau de pharmacies/établissements réels,
   valider les règles de détection sur des données réelles.
@@ -336,6 +431,8 @@ détermine l'URL du back-office :
 - **Phase 4** *(fait)* : écran des anomalies avec export CSV, rapports
   d'activité, et seuils de détection configurables depuis le back-office.
   Reste à faire si besoin : les graphiques.
-- **Phase 5** : déploiement aux 2 000+ agents — passer `DEBUG=False`,
-  configurer l'hébergement définitif, HTTPS, sauvegardes MySQL, et
-  éventuellement l'authentification par SMS mentionnée au cahier des charges.
+- **Phase 5** : déploiement aux 2 000+ agents. La mise en ligne sur Render est
+  décrite en section 3 (`DEBUG=False`, HTTPS, cookies sécurisés et disque
+  persistant sont déjà configurés). Restent à traiter : la sauvegarde régulière
+  du disque des justificatifs, le dimensionnement du plan, et éventuellement
+  l'authentification par SMS mentionnée au cahier des charges.
