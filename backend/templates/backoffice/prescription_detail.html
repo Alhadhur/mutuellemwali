@@ -1,0 +1,101 @@
+{% extends "backoffice/base.html" %}
+
+{% block titre %}{{ prescription.numero_ordonnance }}{% endblock %}
+{% block entete %}Prescription {{ prescription.numero_ordonnance }}{% endblock %}
+
+{% block contenu %}
+<div class="barre-actions">
+  <a class="btn btn-secondaire" href="{% url 'backoffice:prescriptions' %}">← Retour à la liste</a>
+</div>
+
+<section>
+  <h2>Détail</h2>
+  <div class="fiche">
+    <div><span>Bénéficiaire</span><strong>{{ prescription.beneficiaire }}</strong></div>
+    <div><span>Agent</span><strong>{{ prescription.agent.matricule }}</strong></div>
+    <div><span>Prestataire</span><strong>{{ prescription.prestataire.nom }}</strong></div>
+    <div><span>Nature du soin</span><strong>{{ prescription.nature.libelle|default:"—" }}</strong></div>
+    <div><span>Montant total</span><strong>{{ prescription.montant_total }} KMF</strong></div>
+    <div><span>Montant remboursé</span><strong>{{ prescription.montant_rembourse }} KMF</strong></div>
+    <div><span>Date d'émission</span><strong>{{ prescription.date_emission|date:"d/m/Y" }}</strong></div>
+    <div><span>Soumise le</span><strong>{{ prescription.date_creation|date:"d/m/Y H:i" }}</strong></div>
+    <div><span>Statut</span><strong>{{ prescription.get_statut_display }}</strong></div>
+  </div>
+  {% if prescription.motif_signalement %}
+    <div style="padding:0 18px 18px;">
+      <div class="erreurs-globales">⚠ {{ prescription.motif_signalement }}</div>
+    </div>
+  {% endif %}
+  {% if prescription.justificatif %}
+    <div style="padding:0 18px 18px;">
+      <a class="btn btn-secondaire" href="{{ prescription.justificatif.url }}" target="_blank" rel="noopener">
+        Voir le justificatif
+      </a>
+    </div>
+  {% endif %}
+</section>
+
+{% if doublons %}
+  <section>
+    <h2>Prescriptions similaires détectées</h2>
+    <table>
+      <tr><th>N° ordonnance</th><th>Prestataire</th><th>Montant</th><th>Date</th><th>Statut</th><th></th></tr>
+      {% for d in doublons %}
+        <tr>
+          <td>{{ d.numero_ordonnance }}</td>
+          <td>{{ d.prestataire.nom }}</td>
+          <td>{{ d.montant_total }} KMF</td>
+          <td>{{ d.date_emission|date:"d/m/Y" }}</td>
+          <td>{{ d.get_statut_display }}</td>
+          <td style="text-align:right;">
+            <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' d.pk %}">Ouvrir</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  </section>
+{% endif %}
+
+{% if peut_modifier %}
+  <section>
+    <h2>Changer le statut</h2>
+    <form method="post" action="{% url 'backoffice:prescription_statut' prescription.pk %}" style="padding:18px;max-width:560px;">
+      {% csrf_token %}
+      <div class="champ">
+        <label for="statut">Nouveau statut</label>
+        <select name="statut" id="statut">
+          {% for valeur, libelle in statuts %}
+            <option value="{{ valeur }}" {% if valeur == prescription.statut %}selected{% endif %}>{{ libelle }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="champ">
+        <label for="commentaire">Motif / commentaire</label>
+        <textarea name="commentaire" id="commentaire" rows="3"></textarea>
+        <div class="aide">Conservé dans l'historique horodaté ci-dessous.</div>
+      </div>
+      <button class="btn" type="submit">Appliquer</button>
+    </form>
+  </section>
+{% endif %}
+
+<section>
+  <h2>Historique</h2>
+  {% if historique %}
+    <table>
+      <tr><th>Date</th><th>De</th><th>Vers</th><th>Par</th><th>Commentaire</th></tr>
+      {% for h in historique %}
+        <tr>
+          <td>{{ h.date_changement|date:"d/m/Y H:i" }}</td>
+          <td>{{ h.ancien_statut|default:"—" }}</td>
+          <td>{{ h.nouveau_statut }}</td>
+          <td>{{ h.utilisateur|default:"—" }}</td>
+          <td>{{ h.commentaire|default:"—" }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">Aucun changement enregistré.</div>
+  {% endif %}
+</section>
+{% endblock %}

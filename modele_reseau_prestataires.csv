@@ -1,0 +1,4 @@
+type,nom,ville,adresse,telephone,taux,statut
+pharmacie,,,,,80,actif
+etablissement,,,,,80,actif
+praticien,,,,,70,actif

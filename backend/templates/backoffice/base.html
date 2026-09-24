@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>{% block titre %}Back-office{% endblock %} — Mutuelle santé</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg:#f4f6f8; --card:#fff; --border:#e1e5ea; --text:#1f2937; --muted:#6b7280;
+    --accent:#2563eb; --danger:#dc2626; --warn:#d97706; --ok:#16a34a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+         background:var(--bg); color:var(--text); }
+  .page { display:flex; min-height:100vh; align-items:stretch; }
+  .page > .bo-menu { width:250px; flex:none; }
+  .contenu { flex:1; min-width:0; }
+  header { background:#1f2937; color:#fff; padding:16px 28px; display:flex;
+           justify-content:space-between; align-items:center; gap:16px; }
+  header h1 { font-size:18px; margin:0; font-weight:600; }
+  header .user { font-size:13px; color:#d1d5db; }
+  header .user a { color:#93c5fd; text-decoration:none; }
+  main { padding:24px 28px; max-width:1200px; margin:0 auto; }
+
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:28px; }
+  .kpi { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+  .kpi .value { font-size:26px; font-weight:700; }
+  .kpi .label { font-size:12.5px; color:var(--muted); margin-top:4px; }
+
+  section { background:var(--card); border:1px solid var(--border); border-radius:10px;
+            margin-bottom:24px; overflow:hidden; }
+  section h2 { font-size:15px; margin:0; padding:14px 18px; border-bottom:1px solid var(--border); background:#fafbfc; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th, td { text-align:left; padding:10px 18px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
+  tr:last-child td { border-bottom:none; }
+  tbody tr:hover { background:#f9fafb; }
+  .empty { padding:20px 18px; color:var(--muted); font-size:13.5px; }
+
+  .badge { display:inline-block; padding:2px 9px; border-radius:10px; font-size:11px; font-weight:600; color:#fff; }
+  .badge-danger { background:var(--danger); } .badge-warn { background:var(--warn); }
+  .badge-ok { background:var(--ok); } .badge-muted { background:#9ca3af; }
+
+  .bar-wrap { display:flex; align-items:center; gap:8px; }
+  .bar { height:8px; background:#e5e7eb; border-radius:4px; flex:1; overflow:hidden; }
+  .bar > span { display:block; height:100%; background:var(--accent); }
+
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:9px;
+         font-size:13px; font-weight:600; text-decoration:none; border:1px solid transparent;
+         cursor:pointer; background:var(--accent); color:#fff; font-family:inherit;
+         transition:filter .12s, box-shadow .12s, background .12s; }
+  .btn:hover { filter:brightness(1.07); }
+  .btn:focus-visible { outline:none; box-shadow:0 0 0 3px rgba(37,99,235,.28); }
+  .btn:active { filter:brightness(.95); }
+  .btn-secondaire { background:#fff; color:var(--text); border-color:var(--border); }
+  .btn-secondaire:hover { background:#f9fafb; filter:none; }
+  .btn-danger { background:var(--danger); }
+  .btn-ok { background:var(--ok); }
+  .btn-petit { padding:5px 10px; font-size:12px; }
+
+  .barre-actions { display:flex; gap:12px; align-items:center; justify-content:space-between;
+                   margin-bottom:18px; flex-wrap:wrap; }
+  .barre-actions form { display:flex; gap:8px; align-items:center; }
+  input[type=text], input[type=search], input[type=date], input[type=number], input[type=email],
+  input[type=password], select, textarea {
+      padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:13.5px;
+      font-family:inherit; background:#fff; color:var(--text); }
+  textarea { width:100%; }
+
+  /* --- Formulaires ------------------------------------------------------ */
+  .formulaire { padding:0; }
+  .formulaire__intro { padding:16px 22px; border-bottom:1px solid var(--border);
+                       background:#fafbfc; font-size:13px; color:var(--muted); }
+  .formulaire__corps { padding:22px; }
+  .formulaire__pied { display:flex; gap:10px; align-items:center; padding:16px 22px;
+                      border-top:1px solid var(--border); background:#fafbfc; }
+
+  /* Les champs se répartissent sur deux colonnes dès que la place le permet. */
+  .grille-champs { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+                   gap:18px 20px; }
+  /* Un champ long ou une case à cocher occupe toute la largeur. */
+  .champ:has(textarea), .champ:has(.controle-fichier), .champ:has(.controle-case),
+  .champ--large { grid-column:1 / -1; }
+
+  .champ { min-width:0; }
+  .champ > label { display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;
+                   color:#374151; letter-spacing:.01em; }
+  .champ .obligatoire { color:var(--danger); margin-left:2px; }
+  .champ .aide { font-size:12px; color:var(--muted); margin-top:5px; line-height:1.45; }
+  .champ .erreur { font-size:12.5px; color:var(--danger); margin-top:5px; font-weight:500; }
+
+  .controle { width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:9px;
+              font-size:13.5px; font-family:inherit; background:#fff; color:var(--text);
+              transition:border-color .12s, box-shadow .12s; }
+  .controle:hover { border-color:#c9cfd6; }
+  .controle:focus { outline:none; border-color:var(--accent);
+                    box-shadow:0 0 0 3px rgba(37,99,235,.14); }
+  .controle::placeholder { color:#9ca3af; }
+  textarea.controle { min-height:90px; resize:vertical; }
+
+  /* Flèche dessinée en CSS : les listes natives sont inégales d'un OS à l'autre. */
+  .controle-liste { appearance:none; padding-right:34px; cursor:pointer;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236b7280' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
+      background-repeat:no-repeat; background-position:right 12px center; }
+  .controle-liste:disabled { background-color:#f3f4f6; color:var(--muted); cursor:not-allowed; }
+
+  .controle-fichier { width:100%; font-size:13px; padding:10px 12px; border:1px dashed var(--border);
+                      border-radius:9px; background:#fafbfc; }
+  .controle-fichier::file-selector-button { margin-right:12px; padding:6px 12px; border:none;
+      border-radius:7px; background:var(--accent); color:#fff; font-size:12.5px;
+      font-weight:600; cursor:pointer; font-family:inherit; }
+
+  .champ:has(.controle-case) { display:flex; align-items:center; gap:10px; }
+  .champ:has(.controle-case) > label { margin-bottom:0; order:2; font-weight:500; font-size:13.5px; }
+  .controle-case { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; flex:none; }
+
+  .champ--erreur .controle { border-color:var(--danger); }
+  .champ--erreur .controle:focus { box-shadow:0 0 0 3px rgba(220,38,38,.14); }
+
+  /* Champ « agent » en recherche libre (fragment _recherche_agent.html). */
+  .recherche-agent { position:relative; }
+  .suggestions { position:absolute; z-index:20; left:0; right:0; background:#fff;
+                 border:1px solid var(--border); border-radius:9px; margin-top:4px;
+                 max-height:260px; overflow-y:auto; box-shadow:0 6px 18px rgba(0,0,0,.08); }
+  .suggestions:empty { display:none; }
+  .suggestions button { display:block; width:100%; text-align:left; background:none;
+                        border:none; padding:9px 12px; font-size:13.5px; cursor:pointer;
+                        font-family:inherit; }
+  .suggestions button:hover, .suggestions button:focus { background:#eef2ff; }
+  .suggestions .matricule { font-weight:700; }
+  .suggestions .site { color:var(--muted); font-size:12px; }
+  .suggestions__vide { padding:10px 12px; font-size:13px; color:var(--muted); }
+  .agent-choisi { display:none; align-items:center; gap:10px; padding:10px 13px;
+                  background:#eef2ff; border:1px solid #c7d2fe; border-radius:9px;
+                  font-size:13.5px; font-weight:600; }
+  .agent-choisi button { background:none; border:none; color:var(--accent); cursor:pointer;
+                         font-size:12.5px; text-decoration:underline; margin-left:auto;
+                         font-family:inherit; }
+  .agent-masque { display:none; }
+
+  /* Répartition 80/20 affichée pendant la saisie d'une prescription. */
+  .repartition { background:#f8fafc; border:1px solid #dbeafe; border-left:3px solid var(--accent);
+                 border-radius:9px; padding:13px 15px; font-size:13px; line-height:1.6; }
+  .repartition strong { font-size:14.5px; color:#1e3a8a; }
+  .repartition .muet { color:var(--muted); }
+
+  .erreurs-globales { background:#fef2f2; border:1px solid #fecaca; color:#991b1b;
+                      padding:12px 16px; border-radius:8px; margin-bottom:18px; font-size:13.5px; }
+  .messages { margin-bottom:18px; }
+  .message { padding:11px 16px; border-radius:8px; font-size:13.5px; margin-bottom:8px;
+             background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; }
+  .message.error { background:#fef2f2; border-color:#fecaca; color:#991b1b; }
+
+  /* --- Anomalies et rapports -------------------------------------------- */
+  .filtre-periode { display:flex; gap:8px; align-items:center; font-size:13px; }
+  .filtre-periode label { color:var(--muted); font-weight:600; }
+  .filtre-periode .controle { width:auto; padding:7px 10px; }
+  .rappel-periode { background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a;
+                    padding:11px 16px; border-radius:9px; font-size:13px; margin-bottom:20px; }
+  .rappel-periode a { color:var(--accent); }
+  section h2 { display:flex; align-items:center; gap:10px; }
+  .compteur { display:inline-block; min-width:22px; text-align:center; padding:1px 8px;
+              border-radius:11px; background:var(--danger); color:#fff; font-size:11.5px;
+              font-weight:700; }
+  .compteur--vide { background:#9ca3af; }
+  .compteur--neutre { background:var(--accent); }
+  .kpi .sur { font-size:15px; color:var(--muted); font-weight:600; }
+  .lien-export { margin-left:auto; }
+  .note-tableau { padding:12px 18px; font-size:12.5px; color:var(--muted); line-height:1.55;
+                  border-bottom:1px solid var(--border); background:#fcfcfd; }
+  .note-tableau em { color:#92400e; font-style:normal; font-weight:600; }
+  /* Les tableaux d'anomalies ont beaucoup de colonnes : on fait défiler le
+     tableau plutôt que la page entière. */
+  .tableau-defilant { overflow-x:auto; }
+  .tableau-defilant table { min-width:100%; white-space:nowrap; }
+
+  .fiche { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 22px; padding:18px; }
+  .fiche div span { display:block; font-size:12px; color:var(--muted); }
+  .fiche div strong { font-size:14.5px; font-weight:600; }
+  .pagination { padding:14px 18px; font-size:13px; color:var(--muted); display:flex; gap:12px; align-items:center; }
+  .pagination a { color:var(--accent); text-decoration:none; }
+
+  @media (max-width:860px) {
+    .page { flex-direction:column; }
+    .page > .bo-menu { width:100%; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  {% include "backoffice/_menu.html" %}
+  <div class="contenu">
+    <header>
+      <h1>{% block entete %}{% endblock %}</h1>
+      <div class="user">
+        {{ request.user.get_full_name }} ({{ request.user.get_role_display }}) ·
+        <a href="{% url 'logout' %}">Se déconnecter</a>
+      </div>
+    </header>
+    <main>
+      {% if messages %}
+        <div class="messages">
+          {% for message in messages %}
+            <div class="message {{ message.tags }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% block contenu %}{% endblock %}
+    </main>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,371 @@
+from datetime import date
+
+from django.test import TestCase
+from django.urls import reverse
+
+from accounts.models import Role, Utilisateur
+from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
+from parametrage.models import Parametrage
+from prescriptions.models import Prescription, StatutPrescription
+from prestataires.models import Prestataire, StatutPrestataire, TypePrestataire
+
+
+class BaseBackoffice(TestCase):
+    def setUp(self):
+        self.rh = Utilisateur.objects.create_user("RH1", "x", nom="Rh", prenom="Service", role=Role.RH)
+        self.direction = Utilisateur.objects.create_user(
+            "DIR1", "x", nom="Dir", prenom="Controle", role=Role.DIRECTION
+        )
+        self.compte_agent = Utilisateur.objects.create_user(
+            "A0001", "x", nom="Zahra", prenom="Fatima", role=Role.AGENT
+        )
+        self.agent = Agent.objects.create(
+            utilisateur=self.compte_agent,
+            site="Moroni",
+            date_naissance=date(1990, 1, 1),
+            date_embauche=date(2018, 6, 1),
+        )
+        self.prestataire = Prestataire.objects.create(
+            type_prestataire=TypePrestataire.PHARMACIE, nom="Pharmacie Centrale", taux_prise_en_charge=80
+        )
+        self.prescription = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-1",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+
+class AccesTest(BaseBackoffice):
+    def test_un_agent_n_accede_pas_au_backoffice(self):
+        self.client.force_login(self.compte_agent)
+
+        self.assertEqual(self.client.get(reverse("backoffice:agents")).status_code, 403)
+
+    def test_la_direction_consulte_mais_ne_modifie_pas(self):
+        self.client.force_login(self.direction)
+
+        self.assertEqual(self.client.get(reverse("backoffice:agents")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("backoffice:agent_creer")).status_code, 403)
+
+    def test_un_visiteur_non_connecte_est_redirige(self):
+        reponse = self.client.get(reverse("backoffice:agents"))
+
+        self.assertEqual(reponse.status_code, 302)
+        self.assertIn("/login/", reponse.url)
+
+
+class ListesTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def test_la_liste_des_agents_affiche_le_quota_issu_du_bareme(self):
+        """Agent sans ayant droit : la tranche « sans conjoint, sans enfant »."""
+        reponse = self.client.get(reverse("backoffice:agents"))
+
+        self.assertContains(reponse, f"{self.agent.quota_effectif} KMF")
+        self.assertContains(reponse, self.agent.matricule)
+
+    def test_la_recherche_filtre_les_resultats(self):
+        reponse = self.client.get(reverse("backoffice:agents"), {"recherche": "introuvable"})
+
+        self.assertNotContains(reponse, self.agent.matricule)
+
+    def test_les_prescriptions_se_filtrent_par_statut(self):
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"statut": StatutPrescription.VALIDEE})
+
+        self.assertNotContains(reponse, "ORD-1")
+
+
+class RechercheAgentTest(BaseBackoffice):
+    """Les écrans de saisie ne peuvent pas afficher deux mille agents dans une
+    liste déroulante : le choix de l'agent passe par une recherche."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def test_recherche_par_matricule(self):
+        reponse = self.client.get(reverse("backoffice:recherche_agents"), {"q": "A0001"})
+
+        resultats = reponse.json()["resultats"]
+        self.assertEqual([r["matricule"] for r in resultats], ["A0001"])
+
+    def test_recherche_par_nom(self):
+        """« Zahra » est le nom de famille du compte A0001."""
+        reponse = self.client.get(reverse("backoffice:recherche_agents"), {"q": "Zahra"})
+
+        self.assertEqual([r["matricule"] for r in reponse.json()["resultats"]], ["A0001"])
+
+    def test_recherche_par_prenom(self):
+        """« Fatima » est le prénom du compte A0001."""
+        reponse = self.client.get(reverse("backoffice:recherche_agents"), {"q": "Fatima"})
+
+        self.assertEqual([r["matricule"] for r in reponse.json()["resultats"]], ["A0001"])
+
+    def test_la_recherche_est_insensible_a_la_casse(self):
+        reponse = self.client.get(reverse("backoffice:recherche_agents"), {"q": "fatima"})
+
+        self.assertEqual(len(reponse.json()["resultats"]), 1)
+
+    def test_les_ecrans_de_saisie_utilisent_la_recherche(self):
+        """Prescription et ayant droit partagent le même champ de recherche ;
+        la liste déroulante complète ne doit plus être proposée à l'écran."""
+        for url in ("backoffice:ayant_droit_creer", "backoffice:prescription_creer"):
+            with self.subTest(url=url):
+                reponse = self.client.get(reverse(url))
+
+                self.assertContains(reponse, 'id="recherche-agent"')
+                self.assertContains(reponse, "recherche/agents/")
+                self.assertContains(reponse, 'class="agent-masque"')
+
+    def test_l_agent_deja_rattache_reste_selectionne_a_la_modification(self):
+        enfant = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Ali",
+            date_naissance=date(2015, 3, 2),
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="acte.jpg",
+        )
+
+        reponse = self.client.get(reverse("backoffice:ayant_droit_modifier", args=[enfant.pk]))
+
+        self.assertContains(reponse, f'value="{self.agent.pk}" selected')
+
+    def test_un_agent_inactif_n_est_pas_proposé(self):
+        self.agent.actif = False
+        self.agent.save()
+
+        reponse = self.client.get(reverse("backoffice:recherche_agents"), {"q": "A0001"})
+
+        self.assertEqual(reponse.json()["resultats"], [])
+
+    def test_un_agent_n_accede_pas_a_la_recherche(self):
+        self.client.force_login(self.compte_agent)
+
+        self.assertEqual(self.client.get(reverse("backoffice:recherche_agents")).status_code, 403)
+
+
+class AyantsDroitDeLAgentTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.enfant = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Amine",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
+
+    def test_seuls_les_ayants_droit_de_l_agent_sont_renvoyes(self):
+        autre_compte = Utilisateur.objects.create_user("A0002", "x", nom="B", prenom="C", role=Role.AGENT)
+        autre_agent = Agent.objects.create(
+            utilisateur=autre_compte,
+            site="Moroni",
+            date_naissance=date(1990, 1, 1),
+            date_embauche=date(2018, 6, 1),
+        )
+        AyantDroit.objects.create(
+            agent=autre_agent,
+            nom="Autre",
+            prenom="Personne",
+            lien_parente=LienParente.CONJOINT,
+            type_justificatif=TypeJustificatif.ACTE_MARIAGE,
+            justificatif="x.jpg",
+        )
+
+        reponse = self.client.get(reverse("backoffice:recherche_ayants_droit", args=[self.agent.pk]))
+
+        resultats = reponse.json()["resultats"]
+        self.assertEqual([r["id"] for r in resultats], [self.enfant.pk])
+
+    def test_un_ayant_droit_non_couvert_est_signale(self):
+        self.enfant.statut_verification = StatutVerification.EN_ATTENTE
+        self.enfant.save()
+
+        reponse = self.client.get(reverse("backoffice:recherche_ayants_droit", args=[self.agent.pk]))
+
+        self.assertFalse(reponse.json()["resultats"][0]["couvert"])
+
+
+class ChangementStatutTest(BaseBackoffice):
+    def test_valider_une_prescription_trace_l_auteur_et_le_commentaire(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(
+            reverse("backoffice:prescription_statut", args=[self.prescription.pk]),
+            {"statut": StatutPrescription.VALIDEE, "commentaire": "Contrôle effectué"},
+        )
+
+        self.prescription.refresh_from_db()
+        trace = self.prescription.historique.last()
+        self.assertEqual(self.prescription.statut, StatutPrescription.VALIDEE)
+        self.assertEqual(trace.utilisateur, self.rh)
+        self.assertEqual(trace.commentaire, "Contrôle effectué")
+
+    def test_un_statut_inconnu_est_refuse(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(
+            reverse("backoffice:prescription_statut", args=[self.prescription.pk]),
+            {"statut": "N_IMPORTE_QUOI"},
+        )
+
+        self.prescription.refresh_from_db()
+        self.assertEqual(self.prescription.statut, StatutPrescription.SOUMISE)
+
+
+class AyantDroitTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.ayant_droit = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Amine",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+        )
+
+    def test_valider_trace_l_auteur_et_la_date(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(reverse("backoffice:ayant_droit_verifier", args=[self.ayant_droit.pk, "valider"]))
+
+        self.ayant_droit.refresh_from_db()
+        self.assertEqual(self.ayant_droit.statut_verification, StatutVerification.VALIDE)
+        self.assertEqual(self.ayant_droit.verifie_par, self.rh)
+        self.assertIsNotNone(self.ayant_droit.date_verification)
+
+
+class PrestataireTest(BaseBackoffice):
+    def test_basculer_le_statut_suspend_puis_reactive(self):
+        self.client.force_login(self.rh)
+        url = reverse("backoffice:prestataire_statut", args=[self.prestataire.pk])
+
+        self.client.post(url)
+        self.prestataire.refresh_from_db()
+        self.assertEqual(self.prestataire.statut, StatutPrestataire.SUSPENDU)
+
+        self.client.post(url)
+        self.prestataire.refresh_from_db()
+        self.assertEqual(self.prestataire.statut, StatutPrestataire.ACTIF)
+
+
+class UtilisateurTest(BaseBackoffice):
+    def test_creer_un_compte_enregistre_un_mot_de_passe_utilisable(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(
+            reverse("backoffice:utilisateur_creer"),
+            {
+                "matricule": "A0009",
+                "nom": "Test",
+                "prenom": "Nouveau",
+                "email": "",
+                "role": Role.AGENT,
+                "telephone": "+269 333 44 55",
+                "region": "Ngazidja",
+                "is_active": "on",
+                "mot_de_passe": "MotDePasse2026!",
+                "confirmation": "MotDePasse2026!",
+            },
+        )
+
+        cree = Utilisateur.objects.get(matricule="A0009")
+        self.assertTrue(cree.check_password("MotDePasse2026!"))
+        self.assertEqual(cree.telephone, "+269 333 44 55")
+
+    def test_le_telephone_reste_facultatif(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(
+            reverse("backoffice:utilisateur_creer"),
+            {
+                "matricule": "A0011",
+                "nom": "Test",
+                "prenom": "Sans numéro",
+                "role": Role.AGENT,
+                "is_active": "on",
+                "mot_de_passe": "MotDePasse2026!",
+                "confirmation": "MotDePasse2026!",
+            },
+        )
+
+        self.assertEqual(Utilisateur.objects.get(matricule="A0011").telephone, "")
+
+    def test_deux_mots_de_passe_differents_bloquent_la_creation(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(
+            reverse("backoffice:utilisateur_creer"),
+            {
+                "matricule": "A0010",
+                "nom": "Test",
+                "prenom": "Nouveau",
+                "role": Role.AGENT,
+                "mot_de_passe": "Un",
+                "confirmation": "Deux",
+            },
+        )
+
+        self.assertFalse(Utilisateur.objects.filter(matricule="A0010").exists())
+
+
+class ParametrageTest(BaseBackoffice):
+    def test_le_formulaire_met_a_jour_la_ligne_unique(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(
+            reverse("backoffice:parametrage"),
+            {
+                "cotisation_base": "5000",
+                "conjoints_inclus": "1",
+                "enfants_inclus": "3",
+                "cout_conjoint_supplementaire": "2000",
+                "cout_enfant_supplementaire": "2000",
+                "age_limite_enfant": "18",
+                "duree_cycle_mois": "2",
+                "quota_mensuel_defaut": "75000",
+                "fenetre_analyse_jours": "45",
+                "seuil_volume_ecart_type": "2.00",
+                "seuil_alerte_quota": "15",
+            },
+        )
+
+        parametres = Parametrage.charger()
+        self.assertEqual(parametres.quota_mensuel_defaut, 75000)
+        self.assertEqual(Parametrage.objects.count(), 1)
+
+    def test_les_seuils_de_detection_sont_reglables_sans_toucher_au_code(self):
+        self.client.force_login(self.rh)
+
+        self.client.post(
+            reverse("backoffice:parametrage"),
+            {
+                "cotisation_base": "5000",
+                "conjoints_inclus": "1",
+                "enfants_inclus": "3",
+                "cout_conjoint_supplementaire": "2000",
+                "cout_enfant_supplementaire": "2000",
+                "age_limite_enfant": "18",
+                "duree_cycle_mois": "1",
+                "quota_mensuel_defaut": "0",
+                "fenetre_analyse_jours": "90",
+                "seuil_volume_ecart_type": "0.50",
+                "seuil_alerte_quota": "25",
+            },
+        )
+
+        parametres = Parametrage.charger()
+        self.assertEqual(parametres.fenetre_analyse_jours, 90)
+        self.assertEqual(str(parametres.seuil_volume_ecart_type), "0.50")
+        self.assertEqual(parametres.seuil_alerte_quota, 25)

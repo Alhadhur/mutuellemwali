@@ -1,0 +1,95 @@
+{% extends "backoffice/base.html" %}
+
+{% block titre %}{{ agent.matricule }}{% endblock %}
+{% block entete %}Agent {{ agent.matricule }} — {{ agent.utilisateur.get_full_name }}{% endblock %}
+
+{% block contenu %}
+<div class="barre-actions">
+  <a class="btn btn-secondaire" href="{% url 'backoffice:agents' %}">← Retour à la liste</a>
+  {% if peut_modifier %}
+    <a class="btn" href="{% url 'backoffice:agent_modifier' agent.pk %}">Modifier</a>
+  {% endif %}
+</div>
+
+<section>
+  <h2>Dossier</h2>
+  <div class="fiche">
+    <div><span>Matricule</span><strong>{{ agent.matricule }}</strong></div>
+    <div><span>Site</span><strong>{{ agent.site }}</strong></div>
+    <div><span>Région</span><strong>{{ agent.utilisateur.region|default:"—" }}</strong></div>
+    <div><span>Téléphone</span><strong>{{ agent.utilisateur.telephone|default:"—" }}</strong></div>
+    <div><span>Date de naissance</span><strong>{{ agent.date_naissance|date:"d/m/Y" }}</strong></div>
+    <div><span>Date d'embauche</span><strong>{{ agent.date_embauche|date:"d/m/Y" }}</strong></div>
+    <div><span>Composition couverte</span><strong>{{ agent.nombre_conjoints }} conjoint(s) · {{ agent.nombre_enfants }} enfant(s)</strong></div>
+    <div><span>Quota mensuel (barème)</span><strong>{{ agent.quota_mensuel }} KMF</strong></div>
+    <div><span>Enveloppe du cycle</span><strong>{{ agent.quota_effectif }} KMF</strong></div>
+    <div><span>Consommé sur le cycle</span><strong>{{ agent.consommation_periode }} KMF</strong></div>
+    <div><span>Solde restant</span><strong>{{ agent.solde_quota }} KMF</strong></div>
+    <div><span>Statut</span><strong>{% if agent.actif %}Actif{% else %}Inactif{% endif %}</strong></div>
+  </div>
+</section>
+
+<section>
+  <h2>Cotisation mensuelle — {{ agent.cotisation_mensuelle }} KMF</h2>
+  <table>
+    {% for libelle, montant in agent.detail_cotisation %}
+      <tr><td>{{ libelle }}</td><td style="text-align:right;">{{ montant }} KMF</td></tr>
+    {% endfor %}
+    <tr><td><strong>Total</strong></td><td style="text-align:right;"><strong>{{ agent.cotisation_mensuelle }} KMF</strong></td></tr>
+  </table>
+  <div class="empty">
+    Quota et cotisation découlent de la composition familiale : ils se règlent
+    dans le barème et les paramètres, pas sur cette fiche.
+  </div>
+</section>
+
+<section>
+  <h2>Ayants droit ({{ ayants_droit|length }})</h2>
+  {% if ayants_droit %}
+    <table>
+      <tr><th>Nom</th><th>Lien</th><th>Âge</th><th>Statut</th><th>Justificatif</th><th></th></tr>
+      {% for a in ayants_droit %}
+        <tr>
+          <td>{{ a.prenom }} {{ a.nom }}</td>
+          <td>{{ a.get_lien_parente_display }}</td>
+          <td>
+            {% if a.age is None %}—{% else %}{{ a.age }} ans{% endif %}
+            {% if a.limite_age_depassee %}<span class="badge badge-danger">limite {{ a.age_limite }} ans</span>{% endif %}
+          </td>
+          <td>{{ a.get_statut_verification_display }}</td>
+          <td>{% if a.est_expire %}<span class="badge badge-danger">Expiré</span>{% else %}OK{% endif %}</td>
+          <td style="text-align:right;">
+            <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:ayant_droit_modifier' a.pk %}">Ouvrir</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">Aucun ayant droit rattaché.</div>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Dernières prescriptions</h2>
+  {% if prescriptions %}
+    <table>
+      <tr><th>N° ordonnance</th><th>Prestataire</th><th>Montant</th><th>Remboursé</th><th>Date</th><th>Statut</th><th></th></tr>
+      {% for p in prescriptions %}
+        <tr>
+          <td>{{ p.numero_ordonnance }}</td>
+          <td>{{ p.prestataire.nom }}</td>
+          <td>{{ p.montant_total }} KMF</td>
+          <td>{{ p.montant_rembourse }} KMF</td>
+          <td>{{ p.date_emission|date:"d/m/Y" }}</td>
+          <td>{{ p.get_statut_display }}</td>
+          <td style="text-align:right;">
+            <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' p.pk %}">Ouvrir</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">Aucune prescription soumise.</div>
+  {% endif %}
+</section>
+{% endblock %}

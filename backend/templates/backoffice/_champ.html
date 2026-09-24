@@ -1,0 +1,12 @@
+{% comment %}
+Rendu d'un champ de formulaire. Partagé par tous les écrans de saisie pour
+que le libellé, l'astérisque, l'aide et les erreurs restent identiques partout.
+{% endcomment %}
+<div class="champ{% if champ.errors %} champ--erreur{% endif %}">
+  <label for="{{ champ.id_for_label }}">
+    {{ champ.label }}{% if champ.field.required %}<span class="obligatoire">*</span>{% endif %}
+  </label>
+  {{ champ }}
+  {% if champ.help_text %}<div class="aide">{{ champ.help_text }}</div>{% endif %}
+  {% for erreur in champ.errors %}<div class="erreur">{{ erreur }}</div>{% endfor %}
+</div>

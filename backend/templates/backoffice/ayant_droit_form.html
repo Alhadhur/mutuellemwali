@@ -1,0 +1,13 @@
+{% extends "backoffice/formulaire.html" %}
+
+{% comment %}
+Même gabarit que les autres formulaires, à un détail près : l'agent rattaché se
+choisit par recherche (matricule, nom, prénom) et non dans une liste déroulante.
+{% endcomment %}
+
+{% block champs %}
+  {% include "backoffice/_recherche_agent.html" with champ=form.agent %}
+  {% for champ in form %}
+    {% if champ.name != 'agent' %}{% include "backoffice/_champ.html" %}{% endif %}
+  {% endfor %}
+{% endblock %}

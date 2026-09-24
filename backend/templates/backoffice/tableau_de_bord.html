@@ -1,0 +1,103 @@
+{% extends "backoffice/base.html" %}
+{% load humanize %}
+
+{% block titre %}Tableau de bord{% endblock %}
+{% block entete %}Tableau de bord anomalies{% endblock %}
+
+{% block contenu %}
+  <div class="barre-actions">
+    <span style="font-size:13px;color:var(--muted);">Vue d'ensemble. Le détail et les exports se trouvent sur les deux écrans dédiés.</span>
+    <span style="display:flex;gap:10px;">
+      <a class="btn btn-secondaire" href="{% url 'backoffice:anomalies' %}">🚩 Toutes les anomalies</a>
+      <a class="btn btn-secondaire" href="{% url 'backoffice:rapports' %}">📈 Rapports d'activité</a>
+    </span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="value">{{ indicateurs.nb_agents_actifs }}</div><div class="label">Agents actifs</div></div>
+    <div class="kpi"><div class="value">{{ indicateurs.nb_prestataires_actifs }}</div><div class="label">Prestataires actifs</div></div>
+    <div class="kpi"><div class="value" style="color:{% if indicateurs.nb_prescriptions_en_controle %}var(--danger){% else %}var(--ok){% endif %};">{{ indicateurs.nb_prescriptions_en_controle }}</div><div class="label">Prescriptions en contrôle</div></div>
+    <div class="kpi"><div class="value">{{ indicateurs.montant_rembourse_total_annee|floatformat:0|intcomma }}</div><div class="label">Remboursé validé (année en cours)</div></div>
+  </div>
+
+  <section>
+    <h2>⚠️ Prescriptions en contrôle — nécessitent une décision RH / Direction</h2>
+    {% if en_controle %}
+    <table>
+      <tr><th>N° ordonnance</th><th>Agent</th><th>Bénéficiaire</th><th>Prestataire</th><th>Montant</th><th>Date</th><th>Motif</th></tr>
+      {% for p in en_controle %}
+      <tr>
+        <td>{{ p.numero_ordonnance }}</td>
+        <td>{{ p.agent.utilisateur.matricule }} — {{ p.agent.utilisateur.get_full_name }}</td>
+        <td>{{ p.beneficiaire }}</td>
+        <td>{{ p.prestataire.code }} — {{ p.prestataire.nom }}</td>
+        <td>{{ p.montant_total }}</td>
+        <td>{{ p.date_emission }}</td>
+        <td style="color:var(--muted);">{{ p.motif_signalement }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">Aucune prescription en attente de contrôle.</div>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>🏥 Prestataires à volume anormal (30 derniers jours)</h2>
+    {% if prestataires_anormaux %}
+    <table>
+      <tr><th>Prestataire</th><th>Nb prescriptions</th><th>Montant total</th><th>Moyenne réseau</th><th>Statut</th></tr>
+      {% for p in prestataires_anormaux %}
+      <tr>
+        <td>{{ p.prestataire__code }} — {{ p.prestataire__nom }}</td>
+        <td>{{ p.nombre }}</td>
+        <td>{{ p.montant }}</td>
+        <td>{{ p.moyenne_reseau }}</td>
+        <td>{% if p.anormal %}<span class="badge badge-danger">Volume anormal</span>{% else %}<span class="badge badge-ok">Normal</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">Pas assez de données sur la période.</div>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>📈 Agents proches de leur quota mensuel</h2>
+    {% if agents_proche_quota %}
+    <table>
+      <tr><th>Agent</th><th>Quota (KMF)</th><th>Consommé</th><th>Solde restant</th><th></th></tr>
+      {% for r in agents_proche_quota %}
+      <tr>
+        <td>{{ r.agent.utilisateur.matricule }} — {{ r.agent.utilisateur.get_full_name }}</td>
+        <td>{{ r.quota }}</td>
+        <td>{{ r.consomme }}</td>
+        <td>{{ r.solde }} ({{ r.pourcentage_restant }}%)</td>
+        <td class="bar-wrap" style="width:120px;"><span class="bar"><span style="width:{{ r.pourcentage_restant }}%;background:var(--danger);"></span></span></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">Aucun agent proche de son quota.</div>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>📄 Justificatifs d'ayants droit expirés</h2>
+    {% if justificatifs_expires %}
+    <table>
+      <tr><th>Ayant droit</th><th>Agent</th><th>Type de justificatif</th><th>Date de validité</th></tr>
+      {% for a in justificatifs_expires %}
+      <tr>
+        <td>{{ a.prenom }} {{ a.nom }}</td>
+        <td>{{ a.agent.utilisateur.matricule }}</td>
+        <td>{{ a.get_type_justificatif_display }}</td>
+        <td style="color:var(--danger);font-weight:600;">{{ a.date_validite }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">Aucun justificatif expiré détecté.</div>
+    {% endif %}
+  </section>
+{% endblock %}

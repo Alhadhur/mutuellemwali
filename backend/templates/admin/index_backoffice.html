@@ -1,0 +1,7 @@
+{% extends "admin/index.html" %}
+{% comment %}
+La page d'accueil de l'admin vide volontairement le bloc `nav-sidebar` (son
+contenu liste déjà les modèles). On y remet le menu commun, sans cette liste.
+{% endcomment %}
+
+{% block nav-sidebar %}{% include "admin/nav_sidebar.html" with sans_liste_modeles=True %}{% endblock %}

@@ -1,0 +1,863 @@
+"""Back-office métier : écrans de consultation et de saisie propres au projet,
+en remplacement des pages génériques de l'admin Django.
+
+Les listes partagent un même template piloté par `colonnes` : chaque entrée est
+soit un nom d'attribut/méthode du modèle, soit un appelable recevant l'objet.
+"""
+from datetime import date
+
+from django import forms as django_forms
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.db.models import Q
+from django.http import Http404, JsonResponse
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse, reverse_lazy
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
+
+from accounts.models import Role, Utilisateur
+from beneficiaires.models import Agent, AyantDroit, StatutVerification
+from facturation.models import Facture, StatutFacture
+from parametrage.models import NatureSoin, Parametrage, TrancheQuota
+from prescriptions.models import Prescription, StatutPrescription
+from prestataires.models import Prestataire, StatutPrestataire
+
+from . import exports, forms, tableaux
+
+
+def valeur(objet, source):
+    if callable(source):
+        return source(objet)
+    attribut = getattr(objet, source)
+    return attribut() if callable(attribut) else attribut
+
+
+class AccesBackoffice(LoginRequiredMixin, UserPassesTestMixin):
+    """Consultation réservée au service mutuelle (RH) et à la direction."""
+
+    def test_func(self):
+        utilisateur = self.request.user
+        return utilisateur.is_authenticated and (
+            utilisateur.role in (Role.RH, Role.DIRECTION) or utilisateur.is_superuser
+        )
+
+
+class AccesModification(AccesBackoffice):
+    """La direction consulte ; seul le service mutuelle modifie."""
+
+    def test_func(self):
+        utilisateur = self.request.user
+        return utilisateur.is_authenticated and (
+            utilisateur.role == Role.RH or utilisateur.is_superuser
+        )
+
+
+class ListeBase(AccesBackoffice, ListView):
+    template_name = "backoffice/liste.html"
+    paginate_by = 25
+    titre = ""
+    colonnes = ()
+    url_creation = ""
+    url_detail = ""
+    libelle_creation = ""
+    champs_recherche = ()
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        recherche = self.request.GET.get("recherche", "").strip()
+        if recherche and self.champs_recherche:
+            filtre = Q()
+            for champ in self.champs_recherche:
+                filtre |= Q(**{f"{champ}__icontains": recherche})
+            queryset = queryset.filter(filtre)
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["titre"] = self.titre
+        contexte["entetes"] = [libelle for libelle, _ in self.colonnes]
+        contexte["lignes"] = [
+            {
+                "objet": objet,
+                "cellules": [valeur(objet, source) for _, source in self.colonnes],
+                "url": reverse(self.url_detail, args=[objet.pk]) if self.url_detail else "",
+            }
+            for objet in contexte["object_list"]
+        ]
+        contexte["url_creation"] = reverse(self.url_creation) if self.url_creation else ""
+        contexte["libelle_creation"] = self.libelle_creation
+        contexte["recherche"] = self.request.GET.get("recherche", "")
+        contexte["avec_recherche"] = bool(self.champs_recherche)
+        contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        return contexte
+
+
+def styliser(form):
+    """Pose les classes CSS sur les widgets depuis un point unique, plutôt que
+    de les répéter dans chaque formulaire."""
+    for champ in form.fields.values():
+        widget = champ.widget
+        if isinstance(widget, django_forms.CheckboxInput):
+            classe = "controle-case"
+        elif isinstance(widget, django_forms.ClearableFileInput):
+            classe = "controle-fichier"
+        elif isinstance(widget, django_forms.Select):
+            classe = "controle controle-liste"
+        else:
+            classe = "controle"
+        widget.attrs["class"] = f"{widget.attrs.get('class', '')} {classe}".strip()
+    return form
+
+
+class FormulaireBase(AccesModification):
+    template_name = "backoffice/formulaire.html"
+    titre = ""
+
+    def get_form(self, form_class=None):
+        return styliser(super().get_form(form_class))
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["titre"] = self.titre
+        contexte["url_retour"] = self.success_url
+        return contexte
+
+    def form_valid(self, form):
+        reponse = super().form_valid(form)
+        messages.success(self.request, f"{self.titre} : enregistrement effectué.")
+        return reponse
+
+
+class TableauDeBordView(AccesBackoffice, TemplateView):
+    template_name = "backoffice/tableau_de_bord.html"
+
+    def get_context_data(self, **kwargs):
+        from anomalies import services
+
+        contexte = super().get_context_data(**kwargs)
+        contexte["indicateurs"] = services.indicateurs_globaux()
+        contexte["en_controle"] = services.prescriptions_en_controle()
+        contexte["pics"] = services.pics_de_consommation()
+        contexte["prestataires_anormaux"] = services.prestataires_volume_anormal()
+        contexte["agents_proche_quota"] = services.agents_proche_quota()
+        contexte["justificatifs_expires"] = services.ayants_droit_justificatif_expire()
+        return contexte
+
+
+# --- Agents ---------------------------------------------------------------
+
+
+class AgentListe(ListeBase):
+    model = Agent
+    titre = "Agents"
+    url_creation = "backoffice:agent_creer"
+    libelle_creation = "Nouvel agent"
+    url_detail = "backoffice:agent_detail"
+    champs_recherche = ("utilisateur__matricule", "utilisateur__nom", "utilisateur__prenom", "site")
+    colonnes = (
+        ("Matricule", "matricule"),
+        ("Nom", lambda o: o.utilisateur.get_full_name()),
+        ("Site", "site"),
+        ("Quota du cycle", lambda o: f"{o.quota_effectif} KMF ({o.quota_mensuel}/mois)"),
+        ("Famille", lambda o: f"{o.nombre_conjoints} conj. · {o.nombre_enfants} enf."),
+        ("Cotisation", lambda o: f"{o.cotisation_mensuelle} KMF"),
+        ("Solde du cycle", lambda o: f"{o.solde_quota()} KMF"),
+        ("Actif", "actif"),
+    )
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("utilisateur")
+
+
+class AgentDetail(AccesBackoffice, DetailView):
+    model = Agent
+    template_name = "backoffice/agent_detail.html"
+    context_object_name = "agent"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["ayants_droit"] = self.object.ayants_droit.all()
+        contexte["prescriptions"] = self.object.prescriptions.select_related("prestataire")[:20]
+        contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        return contexte
+
+
+class AgentCreer(FormulaireBase, CreateView):
+    model = Agent
+    form_class = forms.AgentForm
+    titre = "Nouvel agent"
+    success_url = reverse_lazy("backoffice:agents")
+
+
+class AgentModifier(FormulaireBase, UpdateView):
+    model = Agent
+    form_class = forms.AgentForm
+    titre = "Modifier l'agent"
+    success_url = reverse_lazy("backoffice:agents")
+
+
+# --- Ayants droit ---------------------------------------------------------
+
+
+class AyantDroitListe(ListeBase):
+    model = AyantDroit
+    titre = "Ayants droit"
+    url_creation = "backoffice:ayant_droit_creer"
+    libelle_creation = "Nouvel ayant droit"
+    url_detail = "backoffice:ayant_droit_modifier"
+    champs_recherche = ("nom", "prenom", "agent__utilisateur__matricule")
+    colonnes = (
+        ("Nom", lambda o: f"{o.prenom} {o.nom}"),
+        ("Agent", lambda o: o.agent.matricule),
+        ("Lien", "get_lien_parente_display"),
+        ("Âge", lambda o: "—" if o.age is None else f"{o.age} ans"),
+        ("Statut", "get_statut_verification_display"),
+    )
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("agent__utilisateur")
+
+
+class AyantDroitCreer(FormulaireBase, CreateView):
+    model = AyantDroit
+    form_class = forms.AyantDroitForm
+    template_name = "backoffice/ayant_droit_form.html"
+    titre = "Nouvel ayant droit"
+    success_url = reverse_lazy("backoffice:ayants_droit")
+
+
+class AyantDroitModifier(FormulaireBase, UpdateView):
+    model = AyantDroit
+    form_class = forms.AyantDroitForm
+    template_name = "backoffice/ayant_droit_form.html"
+    titre = "Modifier l'ayant droit"
+    success_url = reverse_lazy("backoffice:ayants_droit")
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["ayant_droit"] = self.object
+        return contexte
+
+
+class AyantDroitVerifier(AccesModification, View):
+    """Valide ou rejette un ayant droit en traçant l'auteur et la date."""
+
+    def post(self, request, pk, decision):
+        from django.utils import timezone
+
+        ayant_droit = get_object_or_404(AyantDroit, pk=pk)
+        statuts = {"valider": StatutVerification.VALIDE, "rejeter": StatutVerification.REJETE}
+        if decision not in statuts:
+            return redirect("backoffice:ayants_droit")
+
+        ayant_droit.statut_verification = statuts[decision]
+        ayant_droit.verifie_par = request.user
+        ayant_droit.date_verification = timezone.now()
+        ayant_droit.commentaire_verification = request.POST.get("commentaire", "")
+        ayant_droit.save()
+        messages.success(request, f"{ayant_droit.prenom} {ayant_droit.nom} : {statuts[decision].label.lower()}.")
+        return redirect("backoffice:ayant_droit_modifier", pk=pk)
+
+
+# --- Prescriptions --------------------------------------------------------
+
+
+class PrescriptionListe(ListeBase):
+    model = Prescription
+    titre = "Prescriptions"
+    url_detail = "backoffice:prescription_detail"
+    url_creation = "backoffice:prescription_creer"
+    libelle_creation = "Saisir une prescription"
+    champs_recherche = ("numero_ordonnance", "agent__utilisateur__matricule", "prestataire__nom")
+    colonnes = (
+        ("N° ordonnance", "numero_ordonnance"),
+        ("Bénéficiaire", lambda o: str(o.beneficiaire())),
+        ("Prestataire", lambda o: o.prestataire.nom),
+        ("Nature", lambda o: o.nature.libelle if o.nature_id else "—"),
+        ("Montant", lambda o: f"{o.montant_total} KMF"),
+        ("Remboursé", lambda o: f"{o.montant_rembourse} KMF"),
+        ("Date", "date_emission"),
+        ("Statut", "get_statut_display"),
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("agent__utilisateur", "prestataire", "ayant_droit", "nature")
+        statut = self.request.GET.get("statut", "")
+        if statut:
+            queryset = queryset.filter(statut=statut)
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["filtre_statut"] = self.request.GET.get("statut", "")
+        contexte["statuts"] = StatutPrescription.choices
+        return contexte
+
+
+class RechercheAgents(AccesBackoffice, View):
+    """Alimente le champ « agent » en recherche libre (prescription, ayant
+    droit) : avec plusieurs milliers d'agents, une liste déroulante complète
+    est inutilisable. La recherche porte sur le matricule, le nom et le
+    prénom."""
+
+    def get(self, request):
+        recherche = request.GET.get("q", "").strip()
+        agents = Agent.objects.select_related("utilisateur").filter(actif=True)
+        if recherche:
+            agents = agents.filter(
+                Q(utilisateur__matricule__icontains=recherche)
+                | Q(utilisateur__nom__icontains=recherche)
+                | Q(utilisateur__prenom__icontains=recherche)
+            )
+        return JsonResponse(
+            {
+                "resultats": [
+                    {
+                        "id": agent.pk,
+                        "matricule": agent.matricule,
+                        "nom": agent.utilisateur.get_full_name(),
+                        "site": agent.site,
+                    }
+                    for agent in agents[:20]
+                ]
+            }
+        )
+
+
+class AyantsDroitDeLAgent(AccesBackoffice, View):
+    """Restreint le choix du bénéficiaire aux ayants droit de l'agent choisi.
+
+    Les ayants droit non couverts (dossier non validé, ou enfant au-delà de
+    l'âge limite) sont renvoyés mais signalés : au service mutuelle de décider,
+    plutôt que de les masquer sans explication.
+    """
+
+    def get(self, request, pk):
+        agent = get_object_or_404(Agent, pk=pk)
+        couverts = {a.pk for a in agent.ayants_droit_couverts}
+        return JsonResponse(
+            {
+                "resultats": [
+                    {
+                        "id": ayant_droit.pk,
+                        "libelle": f"{ayant_droit.prenom} {ayant_droit.nom} ({ayant_droit.get_lien_parente_display()})",
+                        "couvert": ayant_droit.pk in couverts,
+                    }
+                    for ayant_droit in agent.ayants_droit.all()
+                ]
+            }
+        )
+
+
+class PrescriptionCreer(FormulaireBase, CreateView):
+    """Saisie d'une ordonnance papier par le service mutuelle. Elle suit le
+    même circuit qu'une soumission mobile : la détection de doublons s'applique
+    et le statut reste soumis à une validation manuelle."""
+
+    model = Prescription
+    form_class = forms.PrescriptionForm
+    template_name = "backoffice/prescription_form.html"
+    titre = "Saisir une prescription"
+    success_url = reverse_lazy("backoffice:prescriptions")
+
+    def form_valid(self, form):
+        form.instance.soumis_par = self.request.user
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("backoffice:prescription_detail", args=[self.object.pk])
+
+
+class PrescriptionDetail(AccesBackoffice, DetailView):
+    model = Prescription
+    template_name = "backoffice/prescription_detail.html"
+    context_object_name = "prescription"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["historique"] = self.object.historique.select_related("utilisateur")
+        contexte["doublons"] = self.object.detecter_doublons().select_related("prestataire")
+        contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        contexte["statuts"] = StatutPrescription.choices
+        return contexte
+
+
+class PrescriptionChangerStatut(AccesModification, View):
+    """Seul point d'entrée pour valider/rejeter : passe par `changer_statut`
+    afin que l'historique horodaté soit alimenté."""
+
+    def post(self, request, pk):
+        prescription = get_object_or_404(Prescription, pk=pk)
+        nouveau_statut = request.POST.get("statut", "")
+        if nouveau_statut not in StatutPrescription.values:
+            messages.error(request, "Statut inconnu.")
+            return redirect("backoffice:prescription_detail", pk=pk)
+
+        prescription.changer_statut(
+            nouveau_statut,
+            utilisateur=request.user,
+            commentaire=request.POST.get("commentaire", ""),
+        )
+        messages.success(request, f"Prescription {prescription.numero_ordonnance} : statut mis à jour.")
+        return redirect("backoffice:prescription_detail", pk=pk)
+
+
+# --- Factures prestataires ------------------------------------------------
+
+
+class FactureListe(ListeBase):
+    model = Facture
+    titre = "Factures prestataires"
+    url_creation = "backoffice:facture_creer"
+    libelle_creation = "Nouvelle facture"
+    url_detail = "backoffice:facture_detail"
+    champs_recherche = ("numero", "prestataire__nom", "prestataire__code")
+    colonnes = (
+        ("N° facture", "numero"),
+        ("Prestataire", lambda o: o.prestataire.nom),
+        ("Période", lambda o: f"{o.get_mois_display()} {o.annee}"),
+        ("Montant annoncé", lambda o: f"{o.montant_total_declare} KMF"),
+        ("Lignes", lambda o: o.lignes.count()),
+        ("Statut", "get_statut_display"),
+    )
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("prestataire")
+
+
+class FactureDetail(AccesBackoffice, DetailView):
+    model = Facture
+    template_name = "backoffice/facture_detail.html"
+    context_object_name = "facture"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["lignes"] = self.object.lignes.select_related("prescription")
+        contexte["non_facturees"] = self.object.prescriptions_non_facturees()
+        contexte["synthese"] = self.object.synthese()
+        contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        return contexte
+
+
+class FactureCreer(FormulaireBase, CreateView):
+    model = Facture
+    form_class = forms.FactureForm
+    titre = "Nouvelle facture"
+    success_url = reverse_lazy("backoffice:factures")
+
+    def form_valid(self, form):
+        form.instance.saisie_par = self.request.user
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("backoffice:facture_detail", args=[self.object.pk])
+
+
+class FactureRapprocher(AccesModification, View):
+    def post(self, request, pk):
+        facture = get_object_or_404(Facture, pk=pk)
+        facture.rapprocher()
+        synthese = facture.synthese()
+        messages.success(
+            request,
+            f"Rapprochement effectué : {synthese['concordantes']} ligne(s) concordante(s), "
+            f"{synthese['ecarts_montant']} écart(s) de montant, "
+            f"{synthese['sans_prescription']} sans prescription, "
+            f"{synthese['non_facturees']} prescription(s) non facturée(s).",
+        )
+        return redirect("backoffice:facture_detail", pk=pk)
+
+
+class FactureValider(AccesModification, View):
+    """Seul point où une prescription passe en « Validée » sans arbitrage
+    individuel : le RH valide la facture, et cette décision s'applique aux
+    lignes dont le rapprochement est exact."""
+
+    def post(self, request, pk):
+        facture = get_object_or_404(Facture, pk=pk)
+        if facture.statut == StatutFacture.RECUE:
+            messages.error(request, "Lancez d'abord le rapprochement.")
+            return redirect("backoffice:facture_detail", pk=pk)
+
+        validees = facture.valider(request.user)
+        messages.success(
+            request,
+            f"Facture validée. {validees} prescription(s) confirmée(s) par la facture et passée(s) en « Validée ».",
+        )
+        return redirect("backoffice:facture_detail", pk=pk)
+
+
+class FactureContester(AccesModification, View):
+    def post(self, request, pk):
+        facture = get_object_or_404(Facture, pk=pk)
+        facture.statut = StatutFacture.CONTESTEE
+        facture.commentaire = request.POST.get("commentaire", "")
+        facture.save()
+        messages.success(request, f"Facture {facture.numero} marquée comme contestée.")
+        return redirect("backoffice:facture_detail", pk=pk)
+
+
+# --- Prestataires ---------------------------------------------------------
+
+
+class PrestataireListe(ListeBase):
+    model = Prestataire
+    titre = "Prestataires conventionnés"
+    url_creation = "backoffice:prestataire_creer"
+    libelle_creation = "Nouveau prestataire"
+    url_detail = "backoffice:prestataire_modifier"
+    champs_recherche = ("code", "nom", "ville")
+    colonnes = (
+        ("Code", "code"),
+        ("Nom", "nom"),
+        ("Type", "get_type_prestataire_display"),
+        ("Ville", "ville"),
+        ("Taux", lambda o: f"{o.taux_prise_en_charge} %"),
+        ("Statut", "get_statut_display"),
+    )
+
+
+class PrestataireCreer(FormulaireBase, CreateView):
+    model = Prestataire
+    form_class = forms.PrestataireForm
+    titre = "Nouveau prestataire"
+    success_url = reverse_lazy("backoffice:prestataires")
+
+
+class PrestataireModifier(FormulaireBase, UpdateView):
+    model = Prestataire
+    form_class = forms.PrestataireForm
+    titre = "Modifier le prestataire"
+    success_url = reverse_lazy("backoffice:prestataires")
+
+
+class PrestataireBasculerStatut(AccesModification, View):
+    def post(self, request, pk):
+        prestataire = get_object_or_404(Prestataire, pk=pk)
+        suspendu = prestataire.statut == StatutPrestataire.SUSPENDU
+        prestataire.statut = StatutPrestataire.ACTIF if suspendu else StatutPrestataire.SUSPENDU
+        prestataire.save()
+        messages.success(request, f"{prestataire.nom} : {prestataire.get_statut_display().lower()}.")
+        return redirect("backoffice:prestataires")
+
+
+# --- Utilisateurs ---------------------------------------------------------
+
+
+class UtilisateurListe(ListeBase):
+    model = Utilisateur
+    titre = "Utilisateurs"
+    url_creation = "backoffice:utilisateur_creer"
+    libelle_creation = "Nouveau compte"
+    url_detail = "backoffice:utilisateur_modifier"
+    champs_recherche = ("matricule", "nom", "prenom", "email", "telephone", "region")
+    colonnes = (
+        ("Matricule", "matricule"),
+        ("Nom", "get_full_name"),
+        ("Rôle", "get_role_display"),
+        ("Téléphone", "telephone"),
+        ("Région", "region"),
+        ("Actif", "is_active"),
+    )
+
+
+class UtilisateurCreer(FormulaireBase, CreateView):
+    model = Utilisateur
+    form_class = forms.UtilisateurCreationForm
+    titre = "Nouveau compte"
+    success_url = reverse_lazy("backoffice:utilisateurs")
+
+
+class UtilisateurModifier(FormulaireBase, UpdateView):
+    model = Utilisateur
+    form_class = forms.UtilisateurForm
+    titre = "Modifier le compte"
+    success_url = reverse_lazy("backoffice:utilisateurs")
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["utilisateur_edite"] = self.object
+        return contexte
+
+
+class UtilisateurMotDePasse(AccesModification, TemplateView):
+    template_name = "backoffice/formulaire.html"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        utilisateur = get_object_or_404(Utilisateur, pk=kwargs["pk"])
+        contexte["titre"] = f"Mot de passe — {utilisateur.matricule}"
+        contexte["form"] = styliser(kwargs.get("form") or forms.MotDePasseForm())
+        contexte["url_retour"] = reverse("backoffice:utilisateur_modifier", args=[utilisateur.pk])
+        return contexte
+
+    def post(self, request, pk):
+        utilisateur = get_object_or_404(Utilisateur, pk=pk)
+        form = forms.MotDePasseForm(request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(pk=pk, form=form))
+        utilisateur.set_password(form.cleaned_data["mot_de_passe"])
+        utilisateur.save()
+        messages.success(request, f"Mot de passe de {utilisateur.matricule} mis à jour.")
+        return redirect("backoffice:utilisateurs")
+
+
+# --- Paramétrage ----------------------------------------------------------
+
+
+class ParametrageModifier(FormulaireBase, UpdateView):
+    model = Parametrage
+    form_class = forms.ParametrageForm
+    titre = "Paramètres de la mutuelle"
+    success_url = reverse_lazy("backoffice:parametrage")
+
+    def get_object(self, queryset=None):
+        return Parametrage.charger()
+
+
+class BaremeListe(ListeBase):
+    model = TrancheQuota
+    titre = "Barème des quotas"
+    url_creation = "backoffice:bareme_creer"
+    libelle_creation = "Nouvelle tranche"
+    url_detail = "backoffice:bareme_modifier"
+    colonnes = (
+        ("Ordre", "ordre"),
+        ("Libellé", "libelle"),
+        ("Conjoint", "get_partenaire_display"),
+        ("Enfants", lambda o: f"{o.enfants_min} et plus" if o.enfants_max is None
+                    else (f"{o.enfants_min}" if o.enfants_min == o.enfants_max
+                          else f"{o.enfants_min} à {o.enfants_max}")),
+        ("Quota mensuel", lambda o: f"{o.montant} KMF"),
+    )
+
+
+class BaremeCreer(FormulaireBase, CreateView):
+    model = TrancheQuota
+    form_class = forms.TrancheQuotaForm
+    titre = "Nouvelle tranche de quota"
+    success_url = reverse_lazy("backoffice:bareme")
+
+
+class BaremeModifier(FormulaireBase, UpdateView):
+    model = TrancheQuota
+    form_class = forms.TrancheQuotaForm
+    titre = "Modifier la tranche"
+    success_url = reverse_lazy("backoffice:bareme")
+
+
+# --- Anomalies ------------------------------------------------------------
+
+
+def _periode_demandee(requete):
+    """Bornes choisies sur l'écran, avec repli sur la fenêtre paramétrée.
+
+    Une date illisible est ignorée plutôt que de renvoyer une erreur : l'écran
+    doit toujours afficher quelque chose.
+    """
+    from datetime import datetime
+
+    from anomalies import services
+
+    defaut_debut, defaut_fin = services.periode_par_defaut()
+
+    def lire(nom, defaut):
+        brut = requete.GET.get(nom, "")
+        try:
+            return datetime.strptime(brut, "%Y-%m-%d").date()
+        except ValueError:
+            return defaut
+
+    return lire("debut", defaut_debut), lire("fin", defaut_fin)
+
+
+class AnomaliesView(AccesBackoffice, TemplateView):
+    """Toutes les familles d'anomalies sur un écran, avec leur export.
+
+    Les tableaux sont décrits dans `tableaux.py` : l'écran et le fichier CSV
+    lisent la même définition, et ne peuvent donc pas diverger.
+    """
+
+    template_name = "backoffice/anomalies.html"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        debut, fin = _periode_demandee(self.request)
+
+        contexte["debut"] = debut
+        contexte["fin"] = fin
+        contexte["tableaux"] = [
+            {
+                "cle": tableau.cle,
+                "titre": tableau.titre,
+                "description": tableau.description,
+                "suit_la_periode": tableau.suit_la_periode,
+                "colonnes": [libelle for libelle, _ in tableau.colonnes],
+                "lignes": [
+                    [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes]
+                    for objet in tableau.lignes(debut, fin)
+                ],
+            }
+            for tableau in tableaux.TABLEAUX
+        ]
+        contexte["total"] = sum(len(t["lignes"]) for t in contexte["tableaux"])
+        return contexte
+
+
+class AnomaliesExport(AccesBackoffice, View):
+    """Export CSV d'une famille d'anomalies, ou de toutes en un seul fichier."""
+
+    def get(self, request, famille="tout"):
+        debut, fin = _periode_demandee(request)
+        entete = (
+            ["Mutuelle santé — export des anomalies"],
+            ["Période analysée", f"du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"],
+            ["Édité le", f"{date.today():%d/%m/%Y}"],
+            ["Édité par", request.user.get_full_name()],
+        )
+
+        if famille == "tout":
+            sections = [
+                (tableau.titre, tableau.colonnes, tableau.lignes(debut, fin))
+                for tableau in tableaux.TABLEAUX
+            ]
+            return exports.reponse_csv_sections(
+                exports.nom_de_fichier("anomalies", debut, fin), sections, entete
+            )
+
+        tableau = tableaux.PAR_CLE.get(famille)
+        if tableau is None:
+            raise Http404("Famille d'anomalies inconnue.")
+        return exports.reponse_csv(
+            exports.nom_de_fichier(f"anomalies-{tableau.cle}", debut, fin),
+            tableau.colonnes,
+            tableau.lignes(debut, fin),
+            entete,
+        )
+
+
+# --- Rapports d'activité --------------------------------------------------
+
+
+def _periode_rapport(requete):
+    """Même lecture que pour les anomalies, mais sur douze mois par défaut :
+    une activité se juge sur une saison complète."""
+    from datetime import datetime
+
+    from rapports import services as rapports_services
+
+    defaut_debut, defaut_fin = rapports_services.periode_par_defaut()
+
+    def lire(nom, defaut):
+        try:
+            return datetime.strptime(requete.GET.get(nom, ""), "%Y-%m-%d").date()
+        except ValueError:
+            return defaut
+
+    return lire("debut", defaut_debut), lire("fin", defaut_fin)
+
+
+class RapportsView(AccesBackoffice, TemplateView):
+    """Rapports d'activité : ce que la mutuelle a produit sur la période.
+
+    Volontairement séparé des anomalies : piloter et détecter ne se lisent pas
+    dans le même écran ni avec la même fenêtre de temps.
+    """
+
+    template_name = "backoffice/rapports.html"
+
+    def get_context_data(self, **kwargs):
+        from rapports import services as rapports_services
+
+        contexte = super().get_context_data(**kwargs)
+        debut, fin = _periode_rapport(self.request)
+
+        contexte["debut"] = debut
+        contexte["fin"] = fin
+        contexte["synthese"] = rapports_services.activite_globale(debut, fin)
+        contexte["tableaux"] = [
+            {
+                "cle": tableau.cle,
+                "titre": tableau.titre,
+                "description": tableau.description,
+                "suit_la_periode": tableau.suit_la_periode,
+                "colonnes": [libelle for libelle, _ in tableau.colonnes],
+                "lignes": [
+                    [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes]
+                    for objet in tableau.lignes(debut, fin)
+                ],
+            }
+            for tableau in tableaux.RAPPORTS
+        ]
+        return contexte
+
+
+class RapportsExport(AccesBackoffice, View):
+    """Export CSV d'un rapport, ou du dossier complet en un seul fichier."""
+
+    def get(self, request, rapport="tout"):
+        from rapports import services as rapports_services
+
+        debut, fin = _periode_rapport(request)
+        synthese = rapports_services.activite_globale(debut, fin)
+        entete = (
+            ["Mutuelle santé — rapport d'activité"],
+            ["Période", f"du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"],
+            ["Édité le", f"{date.today():%d/%m/%Y}"],
+            ["Édité par", request.user.get_full_name()],
+            [],
+            ["Actes enregistrés", synthese["nombre_actes"]],
+            ["Agents ayant consommé", synthese["nombre_agents_consommateurs"]],
+            ["Coût total des soins (KMF)", synthese["cout_total_soins"]],
+            ["Part mutuelle (KMF)", synthese["part_mutuelle"]],
+            ["Part agents (KMF)", synthese["part_agents"]],
+            ["Panier moyen (KMF)", synthese["panier_moyen"]],
+        )
+
+        if rapport == "tout":
+            sections = [
+                (tableau.titre, tableau.colonnes, tableau.lignes(debut, fin))
+                for tableau in tableaux.RAPPORTS
+            ]
+            return exports.reponse_csv_sections(
+                exports.nom_de_fichier("rapport-activite", debut, fin), sections, entete
+            )
+
+        tableau = tableaux.RAPPORTS_PAR_CLE.get(rapport)
+        if tableau is None:
+            raise Http404("Rapport inconnu.")
+        return exports.reponse_csv(
+            exports.nom_de_fichier(f"rapport-{tableau.cle}", debut, fin),
+            tableau.colonnes,
+            tableau.lignes(debut, fin),
+            entete,
+        )
+
+
+class NatureSoinListe(ListeBase):
+    model = NatureSoin
+    titre = "Natures de soin"
+    url_creation = "backoffice:nature_creer"
+    libelle_creation = "Nouvelle nature"
+    url_detail = "backoffice:nature_modifier"
+    champs_recherche = ("libelle",)
+    colonnes = (
+        ("Ordre", "ordre"),
+        ("Libellé", "libelle"),
+        ("Proposée à la saisie", "active"),
+        ("Prescriptions", lambda o: o.prescriptions.count()),
+    )
+
+
+class NatureSoinCreer(FormulaireBase, CreateView):
+    model = NatureSoin
+    form_class = forms.NatureSoinForm
+    titre = "Nouvelle nature de soin"
+    success_url = reverse_lazy("backoffice:natures")
+
+
+class NatureSoinModifier(FormulaireBase, UpdateView):
+    model = NatureSoin
+    form_class = forms.NatureSoinForm
+    titre = "Modifier la nature de soin"
+    success_url = reverse_lazy("backoffice:natures")

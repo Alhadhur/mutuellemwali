@@ -1,0 +1,55 @@
+{% extends "backoffice/base.html" %}
+
+{% block titre %}Anomalies{% endblock %}
+{% block entete %}Anomalies{% endblock %}
+
+{% block contenu %}
+<div class="barre-actions">
+  <form method="get" class="filtre-periode">
+    <label for="debut">Du</label>
+    <input type="date" id="debut" name="debut" value="{{ debut|date:'Y-m-d' }}" class="controle">
+    <label for="fin">au</label>
+    <input type="date" id="fin" name="fin" value="{{ fin|date:'Y-m-d' }}" class="controle">
+    <button class="btn btn-secondaire" type="submit">Appliquer</button>
+  </form>
+  <a class="btn" href="{% url 'backoffice:anomalies_export' %}?debut={{ debut|date:'Y-m-d' }}&amp;fin={{ fin|date:'Y-m-d' }}">
+    📤 Tout exporter
+  </a>
+</div>
+
+<div class="rappel-periode">
+  {{ total }} anomalie(s) relevée(s). Période analysée : du {{ debut|date:"d/m/Y" }} au {{ fin|date:"d/m/Y" }}.
+  Les seuils de détection se règlent dans <a href="{% url 'backoffice:parametrage' %}">les paramètres de la mutuelle</a>.
+</div>
+
+{% for tableau in tableaux %}
+  <section>
+    <h2>
+      {{ tableau.titre }}
+      <span class="compteur{% if not tableau.lignes %} compteur--vide{% endif %}">{{ tableau.lignes|length }}</span>
+      <a class="btn btn-secondaire btn-petit lien-export"
+         href="{% url 'backoffice:anomalies_export_famille' tableau.cle %}?debut={{ debut|date:'Y-m-d' }}&amp;fin={{ fin|date:'Y-m-d' }}">
+        Exporter
+      </a>
+    </h2>
+    <div class="note-tableau">
+      {{ tableau.description }}
+      {% if not tableau.suit_la_periode %}<em>Ce tableau ne dépend pas de la période choisie.</em>{% endif %}
+    </div>
+    {% if tableau.lignes %}
+      <div class="tableau-defilant">
+        <table>
+          <thead><tr>{% for colonne in tableau.colonnes %}<th>{{ colonne }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for ligne in tableau.lignes %}
+              <tr>{% for cellule in ligne %}<td>{{ cellule }}</td>{% endfor %}</tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">Aucune anomalie de ce type sur la période.</div>
+    {% endif %}
+  </section>
+{% endfor %}
+{% endblock %}

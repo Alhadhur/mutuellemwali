@@ -1,0 +1,63 @@
+# --- Secrets et configuration locale ---------------------------------------
+# Le fichier .env porte la clé secrète Django et le mot de passe MySQL :
+# il ne doit jamais être versionné. Voir backend/.env.example pour le modèle.
+.env
+*.env
+!*.env.example
+
+# --- Données réelles --------------------------------------------------------
+# Justificatifs déposés par les agents (ordonnances, actes de naissance) :
+# données de santé et d'état civil, elles n'ont rien à faire dans un dépôt.
+backend/media/
+
+# Sauvegardes de la base : elles contiennent l'intégralité des données
+# nominatives et les empreintes de mots de passe.
+sauvegardes/
+*.sql.gz
+*.dump
+
+# --- Python -----------------------------------------------------------------
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+db.sqlite3
+db.sqlite3-journal
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Module de réglages temporaire utilisé pour lancer les tests sur SQLite.
+backend/config/settings_sqlite_tmp.py
+
+# --- Flutter / Dart ---------------------------------------------------------
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/.pub-cache/
+mobile/.pub/
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Flutter.framework
+mobile/ios/Flutter/Flutter.podspec
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/key.properties
+*.jks
+*.keystore
+
+# --- Éditeurs et systèmes ---------------------------------------------------
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+.DS_Store
+Thumbs.db

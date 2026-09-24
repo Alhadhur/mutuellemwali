@@ -1,0 +1,106 @@
+{% comment %}
+Champ « agent » en recherche libre (matricule, nom, prénom) plutôt qu'en liste
+déroulante : le fichier compte plusieurs milliers d'agents.
+
+À inclure avec le champ de formulaire : {% include "backoffice/_recherche_agent.html" with champ=form.agent %}
+La liste réelle reste un <select> masqué, pour que la validation Django et la
+réouverture du formulaire en erreur fonctionnent sans code supplémentaire.
+Une fois l'agent choisi, un évènement `change` est émis sur ce select : les
+écrans qui en dépendent (ayants droit de l'agent) s'y branchent.
+{% endcomment %}
+<div class="champ champ--large{% if champ.errors %} champ--erreur{% endif %}">
+  <label for="recherche-agent">
+    {{ champ.label }}{% if champ.field.required %}<span class="obligatoire">*</span>{% endif %}
+  </label>
+  <div class="recherche-agent">
+    <input type="search" id="recherche-agent" autocomplete="off" class="controle"
+           placeholder="Saisir un matricule, un nom ou un prénom…">
+    <div class="suggestions" id="suggestions"></div>
+  </div>
+  <div class="agent-choisi" id="agent-choisi">
+    <span id="agent-libelle"></span>
+    <button type="button" id="changer-agent">Changer</button>
+  </div>
+  <div class="agent-masque">{{ champ }}</div>
+  {% if champ.help_text %}<div class="aide">{{ champ.help_text }}</div>{% endif %}
+  {% for erreur in champ.errors %}<div class="erreur">{{ erreur }}</div>{% endfor %}
+</div>
+
+<script>
+(function () {
+  const URL_AGENTS = "{% url 'backoffice:recherche_agents' %}";
+  const recherche = document.getElementById('recherche-agent');
+  const suggestions = document.getElementById('suggestions');
+  const selectAgent = document.getElementById('{{ champ.auto_id }}');
+  const blocChoisi = document.getElementById('agent-choisi');
+  const libelleChoisi = document.getElementById('agent-libelle');
+  let minuteur = null;
+
+  function signaler() {
+    selectAgent.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function afficherChoix(libelle) {
+    libelleChoisi.textContent = libelle;
+    blocChoisi.style.display = 'flex';
+    recherche.style.display = 'none';
+    suggestions.innerHTML = '';
+  }
+
+  function reinitialiser() {
+    selectAgent.value = '';
+    blocChoisi.style.display = 'none';
+    recherche.style.display = '';
+    recherche.value = '';
+    recherche.focus();
+    signaler();
+  }
+
+  async function chercher(texte) {
+    const reponse = await fetch(URL_AGENTS + '?q=' + encodeURIComponent(texte));
+    const donnees = await reponse.json();
+    suggestions.innerHTML = '';
+    if (!donnees.resultats.length) {
+      const vide = document.createElement('div');
+      vide.className = 'suggestions__vide';
+      vide.textContent = 'Aucun agent actif ne correspond.';
+      suggestions.appendChild(vide);
+      return;
+    }
+    for (const agent of donnees.resultats) {
+      const bouton = document.createElement('button');
+      bouton.type = 'button';
+      bouton.innerHTML = '<span class="matricule"></span> — <span class="nom"></span><div class="site"></div>';
+      bouton.querySelector('.matricule').textContent = agent.matricule;
+      bouton.querySelector('.nom').textContent = agent.nom;
+      bouton.querySelector('.site').textContent = agent.site;
+      bouton.addEventListener('click', () => {
+        selectAgent.value = agent.id;
+        afficherChoix(agent.matricule + ' — ' + agent.nom);
+        signaler();
+      });
+      suggestions.appendChild(bouton);
+    }
+  }
+
+  recherche.addEventListener('input', () => {
+    clearTimeout(minuteur);
+    const texte = recherche.value.trim();
+    if (texte.length < 2) { suggestions.innerHTML = ''; return; }
+    minuteur = setTimeout(() => chercher(texte), 200);
+  });
+
+  document.getElementById('changer-agent').addEventListener('click', reinitialiser);
+
+  document.addEventListener('click', (evenement) => {
+    if (!suggestions.contains(evenement.target) && evenement.target !== recherche) {
+      suggestions.innerHTML = '';
+    }
+  });
+
+  // Modification d'une fiche existante : l'agent est déjà choisi.
+  if (selectAgent.value) {
+    afficherChoix(selectAgent.options[selectAgent.selectedIndex].textContent.trim());
+  }
+})();
+</script>

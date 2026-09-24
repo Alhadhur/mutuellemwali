@@ -1,0 +1,49 @@
+{% comment %}
+Menu latéral commun au back-office. Les entrées viennent de config/menu.py via
+le context processor `menu_backoffice`, filtrées selon les droits du visiteur.
+{% endcomment %}
+<style>
+  .bo-menu { --bo-accent:#2563eb; --bo-texte:#e5e7eb; --bo-muted:#9ca3af;
+             background:#111827; color:var(--bo-texte); padding:18px 0 26px;
+             font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+  .bo-menu__marque { display:block; padding:0 20px 16px; font-size:14px; font-weight:700;
+                     color:#fff; border-bottom:1px solid #1f2937; margin-bottom:10px;
+                     text-decoration:none; }
+  .bo-menu__titre { padding:14px 20px 6px; font-size:10.5px; font-weight:700;
+                    letter-spacing:.08em; text-transform:uppercase; color:var(--bo-muted); }
+  .bo-menu ul { list-style:none; margin:0; padding:0; }
+  .bo-menu li { margin:0; }
+  .bo-menu a, .bo-menu .bo-menu__bientot {
+      display:flex; align-items:center; gap:10px; padding:9px 20px;
+      font-size:13.5px; color:var(--bo-texte); text-decoration:none; border-left:3px solid transparent; }
+  .bo-menu a:hover { background:#1f2937; color:#fff; }
+  .bo-menu a.actif { background:#1f2937; color:#fff; border-left-color:var(--bo-accent); font-weight:600; }
+  .bo-menu .bo-menu__bientot { color:#6b7280; cursor:default; }
+  .bo-menu__pastille { margin-left:auto; font-size:9.5px; text-transform:uppercase;
+                       letter-spacing:.05em; background:#374151; color:#9ca3af;
+                       padding:2px 7px; border-radius:10px; }
+  .bo-menu__icone { width:18px; text-align:center; flex:none; }
+</style>
+
+<nav class="bo-menu" aria-label="Navigation du back-office">
+  <a class="bo-menu__marque" href="{% url 'backoffice:tableau_de_bord' %}">🛡️ Mutuelle santé</a>
+  {% for section in menu_backoffice %}
+    <div class="bo-menu__titre">{{ section.titre }}</div>
+    <ul>
+      {% for entree in section.entrees %}
+        <li>
+          {% if entree.disponible %}
+            <a href="{{ entree.url }}"{% if entree.active %} class="actif" aria-current="page"{% endif %}>
+              <span class="bo-menu__icone">{{ entree.icone }}</span>{{ entree.libelle }}
+            </a>
+          {% else %}
+            <span class="bo-menu__bientot">
+              <span class="bo-menu__icone">{{ entree.icone }}</span>{{ entree.libelle }}
+              <span class="bo-menu__pastille">Bientôt</span>
+            </span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endfor %}
+</nav>

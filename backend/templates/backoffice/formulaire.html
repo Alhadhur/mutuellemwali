@@ -1,0 +1,69 @@
+{% extends "backoffice/base.html" %}
+
+{% block titre %}{{ titre }}{% endblock %}
+{% block entete %}{{ titre }}{% endblock %}
+
+{% block contenu %}
+<section>
+  <form method="post" enctype="multipart/form-data" class="formulaire">
+    {% csrf_token %}
+
+    <div class="formulaire__corps">
+      {% if form.non_field_errors %}
+        <div class="erreurs-globales">
+          {% for erreur in form.non_field_errors %}<div>{{ erreur }}</div>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="grille-champs">
+        {% block champs %}
+          {% for champ in form %}{% include "backoffice/_champ.html" %}{% endfor %}
+        {% endblock %}
+      </div>
+    </div>
+
+    <div class="formulaire__pied">
+      <button class="btn" type="submit">Enregistrer</button>
+      <a class="btn btn-secondaire" href="{{ url_retour }}">Annuler</a>
+      <span style="margin-left:auto;font-size:12px;color:var(--muted);">
+        <span class="obligatoire">*</span> champ obligatoire
+      </span>
+    </div>
+  </form>
+</section>
+
+{% if utilisateur_edite %}
+  <section>
+    <h2>Mot de passe</h2>
+    <div style="padding:18px;">
+      <a class="btn btn-secondaire" href="{% url 'backoffice:utilisateur_mot_de_passe' utilisateur_edite.pk %}">
+        Définir un nouveau mot de passe
+      </a>
+    </div>
+  </section>
+{% endif %}
+
+{% if ayant_droit %}
+  <section>
+    <h2>Vérification du justificatif</h2>
+    <div style="padding:18px;">
+      <p style="margin:0 0 14px;font-size:13.5px;">
+        Statut actuel : <strong>{{ ayant_droit.get_statut_verification_display }}</strong>
+        {% if ayant_droit.date_verification %}
+          <span style="color:var(--muted);">— par {{ ayant_droit.verifie_par }} le {{ ayant_droit.date_verification|date:"d/m/Y H:i" }}</span>
+        {% endif %}
+      </p>
+      <div style="display:flex;gap:10px;">
+        <form method="post" action="{% url 'backoffice:ayant_droit_verifier' ayant_droit.pk 'valider' %}">
+          {% csrf_token %}
+          <button class="btn btn-ok" type="submit">Valider</button>
+        </form>
+        <form method="post" action="{% url 'backoffice:ayant_droit_verifier' ayant_droit.pk 'rejeter' %}">
+          {% csrf_token %}
+          <button class="btn btn-danger" type="submit">Rejeter</button>
+        </form>
+      </div>
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

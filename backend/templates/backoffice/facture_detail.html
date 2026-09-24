@@ -1,0 +1,127 @@
+{% extends "backoffice/base.html" %}
+
+{% block titre %}Facture {{ facture.numero }}{% endblock %}
+{% block entete %}Facture {{ facture.numero }} — {{ facture.prestataire.nom }}{% endblock %}
+
+{% block contenu %}
+<div class="barre-actions">
+  <a class="btn btn-secondaire" href="{% url 'backoffice:factures' %}">← Retour à la liste</a>
+  {% if peut_modifier %}
+    <div style="display:flex;gap:8px;">
+      <form method="post" action="{% url 'backoffice:facture_rapprocher' facture.pk %}">
+        {% csrf_token %}
+        <button class="btn btn-secondaire" type="submit">Relancer le rapprochement</button>
+      </form>
+      {% if facture.statut != 'VALIDEE' %}
+        <form method="post" action="{% url 'backoffice:facture_valider' facture.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-ok" type="submit">Valider la facture</button>
+        </form>
+        <form method="post" action="{% url 'backoffice:facture_contester' facture.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-danger" type="submit">Contester</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="value" style="color:var(--ok);">{{ synthese.concordantes }}</div><div class="label">Lignes concordantes</div></div>
+  <div class="kpi"><div class="value" style="color:{% if synthese.ecarts_montant %}var(--warn){% else %}var(--ok){% endif %};">{{ synthese.ecarts_montant }}</div><div class="label">Écarts de montant</div></div>
+  <div class="kpi"><div class="value" style="color:{% if synthese.ecarts_taux %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.ecarts_taux }}</div><div class="label">Taux mal appliqué</div></div>
+  <div class="kpi"><div class="value" style="color:{% if synthese.sans_prescription %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.sans_prescription }}</div><div class="label">Facturées sans prescription</div></div>
+  <div class="kpi"><div class="value" style="color:{% if synthese.non_facturees %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.non_facturees }}</div><div class="label">Déclarées non facturées</div></div>
+</div>
+
+<section>
+  <h2>Facture</h2>
+  <div class="fiche">
+    <div><span>Prestataire</span><strong>{{ facture.prestataire.code }} — {{ facture.prestataire.nom }}</strong></div>
+    <div><span>Période</span><strong>{{ facture.get_mois_display }} {{ facture.annee }}</strong></div>
+    <div><span>Reçue le</span><strong>{{ facture.date_reception|date:"d/m/Y" }}</strong></div>
+    <div><span>Total réclamé (annoncé)</span><strong>{{ facture.montant_total_declare }} KMF</strong></div>
+    <div><span>Somme réclamée sur les lignes</span><strong>{{ facture.montant_total_lignes }} KMF</strong></div>
+    <div>
+      <span>Écart</span>
+      <strong {% if facture.ecart_total %}style="color:var(--danger);"{% endif %}>{{ facture.ecart_total }} KMF</strong>
+    </div>
+    <div><span>Statut</span><strong>{{ facture.get_statut_display }}</strong></div>
+    {% if facture.validee_par %}
+      <div><span>Validée par</span><strong>{{ facture.validee_par }} le {{ facture.date_validation|date:"d/m/Y H:i" }}</strong></div>
+    {% endif %}
+  </div>
+  {% if facture.fichier %}
+    <div style="padding:0 18px 18px;">
+      <a class="btn btn-secondaire" href="{{ facture.fichier.url }}" target="_blank" rel="noopener">Voir la facture d'origine</a>
+    </div>
+  {% endif %}
+</section>
+
+{% if non_facturees %}
+  <section>
+    <h2>⚠ Soins déclarés que le prestataire ne facture pas</h2>
+    <div class="empty">
+      Anomalie la plus sérieuse : l'agent a déclaré un soin dont le prestataire
+      ne réclame pas le paiement.
+    </div>
+    <table>
+      <tr><th>N° ordonnance</th><th>Agent</th><th>Bénéficiaire</th><th>Date</th><th>Montant</th><th>Statut</th><th></th></tr>
+      {% for p in non_facturees %}
+        <tr>
+          <td>{{ p.numero_ordonnance }}</td>
+          <td>{{ p.agent.matricule }}</td>
+          <td>{{ p.beneficiaire }}</td>
+          <td>{{ p.date_emission|date:"d/m/Y" }}</td>
+          <td>{{ p.montant_total }} KMF</td>
+          <td>{{ p.get_statut_display }}</td>
+          <td style="text-align:right;">
+            <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' p.pk %}">Ouvrir</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  </section>
+{% endif %}
+
+<section>
+  <h2>Lignes de la facture ({{ synthese.nombre_lignes }})</h2>
+  {% if lignes %}
+    <table>
+      <tr><th>Date</th><th>Matricule</th><th>Bénéficiaire</th><th>Nature</th><th>Coût du soin</th><th>Réclamé</th><th>Rapprochement</th><th></th></tr>
+      {% for ligne in lignes %}
+        <tr>
+          <td>{{ ligne.date_soin|date:"d/m/Y" }}</td>
+          <td>{{ ligne.matricule }}</td>
+          <td>{{ ligne.nom_beneficiaire }}</td>
+          <td>{{ ligne.nature|default:"—" }}</td>
+          <td>{{ ligne.montant_soin }} KMF</td>
+          <td>{{ ligne.montant_reclame }} KMF</td>
+          <td>
+            {% if ligne.statut == 'CONCORDANTE' %}
+              <span class="badge badge-ok">Concordante</span>
+            {% elif ligne.statut == 'ECART_MONTANT' %}
+              <span class="badge badge-warn">Déclaré {{ ligne.prescription.montant_total }} KMF</span>
+            {% elif ligne.statut == 'ECART_TAUX' %}
+              <span class="badge badge-danger">Taux : {{ ligne.montant_reclame_attendu }} KMF attendus</span>
+            {% elif ligne.statut == 'SANS_PRESCRIPTION' %}
+              <span class="badge badge-danger">Aucune prescription</span>
+            {% elif ligne.statut == 'AGENT_INCONNU' %}
+              <span class="badge badge-danger">Matricule inconnu</span>
+            {% else %}
+              <span class="badge badge-muted">À rapprocher</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;">
+            {% if ligne.prescription %}
+              <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' ligne.prescription.pk %}">Prescription</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">Aucune ligne. Importez le fichier du prestataire avec <code>manage.py importer_facture</code>.</div>
+  {% endif %}
+</section>
+{% endblock %}
