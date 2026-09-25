@@ -37,7 +37,7 @@ class Agent(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="agent"
     )
     site = models.CharField(max_length=100)
-    date_naissance = models.DateField()
+    date_naissance = models.DateField(null=True, blank=True)
     date_embauche = models.DateField()
     actif = models.BooleanField(default=True)
 
