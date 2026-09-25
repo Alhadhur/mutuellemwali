@@ -36,6 +36,111 @@ class LigneInvalide(Exception):
     pass
 
 
+# --- Fonctions de module ----------------------------------------------------
+# Extraites des méthodes de Command pour être réutilisables telles quelles par
+# l'import web équivalent (backoffice.views.FactureImport).
+
+
+def analyser_ligne(ligne, taux, colonne_montant):
+    if not ligne["matricule"]:
+        raise LigneInvalide("matricule vide")
+    if not ligne["beneficiaire"]:
+        raise LigneInvalide("bénéficiaire vide")
+
+    soin, reclame = _montants(ligne, taux, colonne_montant)
+    return {
+        "date_soin": _date(ligne["date"]),
+        "matricule": ligne["matricule"].upper(),
+        "nom_beneficiaire": ligne["beneficiaire"],
+        "nature": ligne["nature"],
+        "montant_soin": soin,
+        "montant_reclame": reclame,
+    }
+
+
+def _montants(ligne, taux, colonne_montant):
+    """Le fichier peut porter le coût total, la part réclamée, ou les deux.
+    Le montant absent se déduit du taux de la convention."""
+    soin = ligne.get("montant_soin", "")
+    reclame = ligne.get("montant_reclame", "")
+
+    if soin and reclame:
+        return _montant(soin), _montant(reclame)
+    if soin:
+        return _montant(soin), _part_mutuelle(_montant(soin), taux)
+    if reclame:
+        return _cout_total(_montant(reclame), taux), _montant(reclame)
+
+    brut = ligne.get("montant", "")
+    if not brut:
+        raise LigneInvalide("aucun montant (colonne « montant », « montant_soin » ou « montant_reclame »)")
+    valeur = _montant(brut)
+    if colonne_montant == "total":
+        return valeur, _part_mutuelle(valeur, taux)
+    return _cout_total(valeur, taux), valeur
+
+
+def _part_mutuelle(cout_total, taux):
+    montant = Decimal(cout_total) * taux / Decimal("100")
+    return int(montant.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _cout_total(part_mutuelle, taux):
+    if taux <= 0:
+        raise LigneInvalide("taux de prise en charge nul : coût total indéductible")
+    montant = Decimal(part_mutuelle) * Decimal("100") / taux
+    return int(montant.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _date(brut):
+    for format_date in FORMATS_DATE:
+        try:
+            return datetime.strptime(brut, format_date).date()
+        except ValueError:
+            continue
+    raise LigneInvalide(f"date « {brut} » illisible (formats acceptés : {', '.join(FORMATS_DATE)})")
+
+
+def _montant(brut):
+    nettoye = brut.replace(" ", "").replace(" ", "").replace(",", ".")
+    try:
+        valeur = float(nettoye)
+    except ValueError:
+        raise LigneInvalide(f"montant « {brut} » illisible")
+    if valeur <= 0:
+        raise LigneInvalide("montant nul ou négatif")
+    return int(round(valeur))
+
+
+def creer_facture_avec_lignes(prestataire, numero, mois, annee, total, lignes, colonne_montant):
+    """Crée l'entête et les lignes, puis lance le rapprochement — tout ou
+    rien : une ligne en erreur annule toute la facture, une facture à moitié
+    chargée fausserait le rapprochement et laisserait croire à des soins non
+    facturés.
+
+    Retourne `(facture_ou_None, importees, erreurs)`. `facture` reste None si
+    des erreurs bloquent l'écriture (la transaction appelante doit alors être
+    annulée par le code appelant si l'écriture n'était pas voulue).
+    """
+    erreurs, importees = [], 0
+    facture = Facture.objects.create(
+        prestataire=prestataire, numero=numero, mois=mois, annee=annee, montant_total_declare=total
+    )
+    for numero_ligne, ligne in enumerate(lignes, start=2):
+        try:
+            LigneFacture.objects.create(
+                facture=facture, **analyser_ligne(ligne, prestataire.taux_prise_en_charge, colonne_montant)
+            )
+            importees += 1
+        except LigneInvalide as erreur:
+            erreurs.append((numero_ligne, str(erreur)))
+
+    if not erreurs:
+        facture.rapprocher()
+
+    return facture, importees, erreurs
+
+
 class Command(BaseCommand):
     help = "Importe une facture prestataire (entête + lignes) et lance le rapprochement."
 
@@ -87,27 +192,11 @@ class Command(BaseCommand):
                 f"La facture « {options['numero'] } » de {prestataire.nom} est déjà enregistrée."
             )
 
-        erreurs, importees = [], 0
         with transaction.atomic():
-            facture = Facture.objects.create(
-                prestataire=prestataire,
-                numero=options["numero"],
-                mois=options["mois"],
-                annee=options["annee"],
-                montant_total_declare=options["total"],
+            facture, importees, erreurs = creer_facture_avec_lignes(
+                prestataire, options["numero"], options["mois"], options["annee"], options["total"],
+                lignes, options["montant"],
             )
-            for numero, ligne in enumerate(lignes, start=2):
-                try:
-                    LigneFacture.objects.create(
-                        facture=facture,
-                        **self._analyser(ligne, prestataire.taux_prise_en_charge, options["montant"]),
-                    )
-                    importees += 1
-                except LigneInvalide as erreur:
-                    erreurs.append((numero, str(erreur)))
-
-            if not erreurs:
-                facture.rapprocher()
 
             # Le rapport interroge la base : il doit être produit avant
             # l'annulation, sinon une simulation n'afficherait que des zéros.
@@ -135,71 +224,6 @@ class Command(BaseCommand):
                 {(cle or "").strip().lower(): (valeur or "").strip() for cle, valeur in ligne.items()}
                 for ligne in lecteur
             ]
-
-    def _analyser(self, ligne, taux, colonne_montant):
-        if not ligne["matricule"]:
-            raise LigneInvalide("matricule vide")
-        if not ligne["beneficiaire"]:
-            raise LigneInvalide("bénéficiaire vide")
-
-        soin, reclame = self._montants(ligne, taux, colonne_montant)
-        return {
-            "date_soin": self._date(ligne["date"]),
-            "matricule": ligne["matricule"].upper(),
-            "nom_beneficiaire": ligne["beneficiaire"],
-            "nature": ligne["nature"],
-            "montant_soin": soin,
-            "montant_reclame": reclame,
-        }
-
-    def _montants(self, ligne, taux, colonne_montant):
-        """Le fichier peut porter le coût total, la part réclamée, ou les deux.
-        Le montant absent se déduit du taux de la convention."""
-        soin = ligne.get("montant_soin", "")
-        reclame = ligne.get("montant_reclame", "")
-
-        if soin and reclame:
-            return self._montant(soin), self._montant(reclame)
-        if soin:
-            return self._montant(soin), self._part_mutuelle(self._montant(soin), taux)
-        if reclame:
-            return self._cout_total(self._montant(reclame), taux), self._montant(reclame)
-
-        brut = ligne.get("montant", "")
-        if not brut:
-            raise LigneInvalide("aucun montant (colonne « montant », « montant_soin » ou « montant_reclame »)")
-        valeur = self._montant(brut)
-        if colonne_montant == "total":
-            return valeur, self._part_mutuelle(valeur, taux)
-        return self._cout_total(valeur, taux), valeur
-
-    def _part_mutuelle(self, cout_total, taux):
-        montant = Decimal(cout_total) * taux / Decimal("100")
-        return int(montant.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-
-    def _cout_total(self, part_mutuelle, taux):
-        if taux <= 0:
-            raise LigneInvalide("taux de prise en charge nul : coût total indéductible")
-        montant = Decimal(part_mutuelle) * Decimal("100") / taux
-        return int(montant.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-
-    def _date(self, brut):
-        for format_date in FORMATS_DATE:
-            try:
-                return datetime.strptime(brut, format_date).date()
-            except ValueError:
-                continue
-        raise LigneInvalide(f"date « {brut} » illisible (formats acceptés : {', '.join(FORMATS_DATE)})")
-
-    def _montant(self, brut):
-        nettoye = brut.replace(" ", "").replace(" ", "").replace(",", ".")
-        try:
-            valeur = float(nettoye)
-        except ValueError:
-            raise LigneInvalide(f"montant « {brut} » illisible")
-        if valeur <= 0:
-            raise LigneInvalide("montant nul ou négatif")
-        return int(round(valeur))
 
     def _rapport(self, facture, importees, erreurs, simulation):
         titre = "SIMULATION (aucune écriture)" if simulation else "FACTURE ENREGISTRÉE"

@@ -1,13 +1,19 @@
 from datetime import date
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
+from facturation.models import Facture, StatutLigne
 from parametrage.models import Parametrage
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TypePrestataire
+
+
+def fichier_csv(contenu, nom="fichier.csv"):
+    return SimpleUploadedFile(nom, contenu.encode("utf-8"), content_type="text/csv")
 
 
 class BaseBackoffice(TestCase):
@@ -369,3 +375,102 @@ class ParametrageTest(BaseBackoffice):
         self.assertEqual(parametres.fenetre_analyse_jours, 90)
         self.assertEqual(str(parametres.seuil_volume_ecart_type), "0.50")
         self.assertEqual(parametres.seuil_alerte_quota, 25)
+
+
+class ImportsWebTest(BaseBackoffice):
+    """Import CSV avec aperçu (upload → erreurs à l'écran → confirmation),
+    pour les trois écrans qui n'avaient jusqu'ici qu'une commande manage.py :
+    Prestataires, Prescriptions (historique) et Factures."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    # --- Prestataires -------------------------------------------------
+
+    def test_import_prestataires_apercu_signale_l_erreur_sans_rien_ecrire(self):
+        contenu = "type;nom;ville\nxxx;Sans Type;Moroni\n"
+        self.client.post(reverse("backoffice:prestataire_import"), {"fichier": fichier_csv(contenu)})
+
+        self.assertFalse(Prestataire.objects.filter(nom="Sans Type").exists())
+
+    def test_import_prestataires_confirmation_ecrit(self):
+        contenu = "type;nom;ville\npharmacie;Pharma Neuve;Moroni\n"
+        self.client.post(reverse("backoffice:prestataire_import"), {"fichier": fichier_csv(contenu)})
+        self.assertFalse(Prestataire.objects.filter(nom="Pharma Neuve").exists(), "l'aperçu ne doit rien écrire")
+
+        self.client.post(reverse("backoffice:prestataire_import"), {"confirmer": "1"})
+
+        self.assertTrue(Prestataire.objects.filter(nom="Pharma Neuve").exists())
+
+    # --- Prescriptions (historique) ------------------------------------
+
+    def test_import_prescriptions_apercu_signale_l_agent_introuvable(self):
+        contenu = (
+            "agent;prestataire;numero_ordonnance;montant_total;date_emission\n"
+            "MATRICULE_INCONNU;Pharmacie Centrale;H-1;5000;2026-01-06\n"
+        )
+        self.client.post(reverse("backoffice:prescription_import"), {"fichier": fichier_csv(contenu)})
+
+        self.assertFalse(Prescription.objects.filter(numero_ordonnance="H-1").exists())
+
+    def test_import_prescriptions_confirmation_respecte_le_statut_du_fichier(self):
+        contenu = (
+            "agent;prestataire;numero_ordonnance;montant_total;date_emission;statut\n"
+            "A0001;Pharmacie Centrale;H-1;10000;2026-01-05;validee\n"
+        )
+        self.client.post(reverse("backoffice:prescription_import"), {"fichier": fichier_csv(contenu)})
+
+        self.client.post(reverse("backoffice:prescription_import"), {"confirmer": "1"})
+
+        prescription = Prescription.objects.get(numero_ordonnance="H-1")
+        self.assertEqual(prescription.statut, StatutPrescription.VALIDEE)
+        self.assertEqual(prescription.montant_rembourse, 8000)
+
+    # --- Factures --------------------------------------------------------
+
+    def _donnees_facture(self, numero, contenu):
+        return {
+            "prestataire": self.prestataire.pk,
+            "numero": numero,
+            "mois": str(self.prescription.date_emission.month),
+            "annee": str(self.prescription.date_emission.year),
+            "montant_total_declare": "8000",
+            "montant_colonne": "total",
+            "fichier_csv": fichier_csv(contenu),
+        }
+
+    def test_import_facture_apercu_signale_une_date_illisible_sans_rien_ecrire(self):
+        contenu = "date;matricule;beneficiaire;nature;montant\n;A0001;Fatima Zahra;Consultation;10000\n"
+        self.client.post(reverse("backoffice:facture_import"), self._donnees_facture("F-1", contenu))
+
+        self.assertFalse(Facture.objects.filter(numero="F-1").exists())
+
+    def test_import_facture_confirmation_cree_l_entete_et_rapproche(self):
+        # Même date que self.prescription (créée dans BaseBackoffice avec
+        # date_emission=date.today()) : c'est ce qui permet au rapprochement
+        # de la retrouver.
+        jour = self.prescription.date_emission.isoformat()
+        contenu = f"date;matricule;beneficiaire;nature;montant\n{jour};A0001;Fatima Zahra;Consultation;10000\n"
+        self.client.post(reverse("backoffice:facture_import"), self._donnees_facture("F-1", contenu))
+
+        self.client.post(reverse("backoffice:facture_import"), {"confirmer": "1"})
+
+        facture = Facture.objects.get(numero="F-1")
+        self.assertEqual(facture.prestataire, self.prestataire)
+        self.assertEqual(facture.saisie_par, self.rh)
+        # Correspond exactement à self.prescription (même agent, même
+        # prestataire, même date, même montant) : le rapprochement doit
+        # l'avoir déjà repérée sans intervention manuelle.
+        ligne = facture.lignes.get()
+        self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
+
+    def test_import_facture_refuse_un_numero_deja_enregistre(self):
+        contenu = "date;matricule;beneficiaire;nature;montant\n2026-01-05;A0001;Fatima Zahra;Consultation;10000\n"
+        self.client.post(reverse("backoffice:facture_import"), self._donnees_facture("F-1", contenu))
+        self.client.post(reverse("backoffice:facture_import"), {"confirmer": "1"})
+
+        reponse = self.client.post(reverse("backoffice:facture_import"), self._donnees_facture("F-1", contenu))
+
+        self.assertContains(reponse, "déjà enregistrée")
+        self.assertEqual(Facture.objects.filter(numero="F-1").count(), 1)

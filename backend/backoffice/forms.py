@@ -4,7 +4,7 @@ from django import forms
 
 from accounts.models import Utilisateur
 from beneficiaires.models import Agent, AyantDroit
-from facturation.models import Facture
+from facturation.models import MOIS, Facture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription
 from prestataires.models import Prestataire, TarifPrestataire
@@ -206,6 +206,31 @@ class FactureForm(forms.ModelForm):
         model = Facture
         fields = ["prestataire", "numero", "mois", "annee", "date_reception", "montant_total_declare", "fichier"]
         widgets = {"date_reception": DateInput}
+
+
+class ImportFactureForm(forms.Form):
+    """Entête + lignes d'une facture en une seule fois, avec aperçu des
+    erreurs avant écriture (voir backoffice.views.FactureImport)."""
+
+    prestataire = forms.ModelChoiceField(queryset=Prestataire.objects.all(), label="Prestataire")
+    numero = forms.CharField(label="N° de facture", max_length=60)
+    mois = forms.ChoiceField(choices=MOIS, label="Mois facturé")
+    annee = forms.IntegerField(label="Année", min_value=2000, max_value=2100)
+    montant_total_declare = forms.IntegerField(label="Total réclamé à la mutuelle (KMF)", min_value=0)
+    montant_colonne = forms.ChoiceField(
+        label="La colonne « montant » du fichier porte",
+        choices=(("reclame", "La part réclamée à la mutuelle"), ("total", "Le coût total du soin")),
+        initial="reclame",
+    )
+    fichier_csv = forms.FileField(label="Fichier CSV des lignes")
+
+    def clean(self):
+        donnees = super().clean()
+        prestataire = donnees.get("prestataire")
+        numero = donnees.get("numero")
+        if prestataire and numero and Facture.objects.filter(prestataire=prestataire, numero=numero).exists():
+            self.add_error("numero", "Cette facture est déjà enregistrée pour ce prestataire.")
+        return donnees
 
 
 class ParametrageForm(forms.ModelForm):

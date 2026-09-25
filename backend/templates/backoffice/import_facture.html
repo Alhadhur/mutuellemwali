@@ -1,0 +1,55 @@
+{% extends "backoffice/base.html" %}
+
+{% block titre %}{{ titre }}{% endblock %}
+{% block entete %}{{ titre }}{% endblock %}
+
+{% block contenu %}
+<section>
+  <div style="padding:18px;">
+    <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);">
+      L'entête (prestataire, numéro, période, total annoncé) et les lignes détaillées du fichier CSV
+      (colonnes : date, matricule, beneficiaire, nature, et un montant — voir l'aide du formulaire
+      « Nouvelle facture ») sont analysés ensemble, avant toute écriture.
+    </p>
+
+    {% if not rapport %}
+      <form method="post" enctype="multipart/form-data" class="formulaire">
+        {% csrf_token %}
+        <div class="grille-champs">
+          {% for champ in form %}{% include "backoffice/_champ.html" %}{% endfor %}
+        </div>
+        <div class="formulaire__pied">
+          <button class="btn" type="submit">Analyser</button>
+          <a class="btn btn-secondaire" href="{{ url_retour }}">Annuler</a>
+        </div>
+      </form>
+    {% else %}
+      <div class="kpis" style="margin-bottom:20px;">
+        <div class="kpi"><div class="value">{{ rapport.lignes_lues }}</div><div>Ligne(s) lue(s)</div></div>
+        <div class="kpi"><div class="value">{{ rapport.erreurs|length }}</div><div>Ligne(s) en erreur</div></div>
+      </div>
+
+      {% if rapport.erreurs %}
+        <div class="erreurs-globales" style="margin-bottom:20px;">
+          {% for numero, message in rapport.erreurs %}
+            <div>{% if numero %}Ligne {{ numero }} : {% endif %}{{ message }}</div>
+          {% endfor %}
+        </div>
+        <a class="btn btn-secondaire" href="{{ url_retour }}">Corriger le fichier et réessayer</a>
+      {% else %}
+        <p style="margin:0 0 16px;font-size:13.5px;">
+          Aucune erreur. Le rapprochement avec les prescriptions déclarées se lance automatiquement
+          à la confirmation — les écarts éventuels restent à arbitrer dans le back-office, rien n'est
+          validé automatiquement.
+        </p>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="confirmer" value="1">
+          <button class="btn" type="submit">Confirmer l'import</button>
+          <a class="btn btn-secondaire" href="{{ url_retour }}">Annuler</a>
+        </form>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

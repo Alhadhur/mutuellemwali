@@ -9,6 +9,7 @@ from django import forms as django_forms
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.db import transaction
 from django.db.models import ProtectedError, Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -507,6 +508,7 @@ class PrescriptionListe(ListeBase):
     url_detail = "backoffice:prescription_detail"
     url_creation = "backoffice:prescription_creer"
     libelle_creation = "Saisir une prescription"
+    url_import = "backoffice:prescription_import"
     champs_recherche = ("numero_ordonnance", "agent__utilisateur__matricule", "prestataire__nom")
     colonnes = (
         ("N° ordonnance", "numero_ordonnance"),
@@ -643,6 +645,35 @@ class PrescriptionSupprimer(AccesModification, View):
         return redirect("backoffice:prescriptions")
 
 
+class PrescriptionImport(ImportCSVBase):
+    """Reprise d'un historique déjà arbitré — pas une soumission normale : le
+    statut et le montant remboursé du fichier font foi, la détection de
+    doublons ne s'applique pas (voir importer_ligne, mode « conserver »)."""
+
+    titre = "Importer un historique de prescriptions"
+    aide = (
+        "Colonnes obligatoires : agent (matricule), prestataire (code ou nom), "
+        "numero_ordonnance, montant_total, date_emission. Facultatives : "
+        "ayant_droit (« Prénom Nom », rattaché à cet agent), statut, "
+        "montant_rembourse (recalculé au taux du prestataire si absent). Le "
+        "statut et le montant remboursé du fichier font foi : la détection de "
+        "doublons ne s'applique pas, ce n'est pas une nouvelle soumission mais "
+        "la reprise d'une décision déjà prise."
+    )
+    colonnes_attendues = frozenset({"agent", "prestataire", "numero_ordonnance", "montant_total", "date_emission"})
+    url_liste = "backoffice:prescriptions"
+    cle_session = "import_prescriptions_csv"
+
+    def importer_ligne(self, ligne):
+        from prescriptions.management.commands.importer_prescriptions import LigneInvalide as ErreurCLI
+        from prescriptions.management.commands.importer_prescriptions import importer_ligne as importer_cli
+
+        try:
+            return importer_cli(ligne)
+        except ErreurCLI as erreur:
+            raise imports.LigneInvalide(str(erreur))
+
+
 class PrescriptionChangerStatut(AccesModification, View):
     """Seul point d'entrée pour valider/rejeter : passe par `changer_statut`
     afin que l'historique horodaté soit alimenté."""
@@ -672,6 +703,7 @@ class FactureListe(ListeBase):
     url_creation = "backoffice:facture_creer"
     libelle_creation = "Nouvelle facture"
     url_detail = "backoffice:facture_detail"
+    url_import = "backoffice:facture_import"
     champs_recherche = ("numero", "prestataire__nom", "prestataire__code")
     colonnes = (
         ("N° facture", "numero"),
@@ -712,6 +744,120 @@ class FactureCreer(FormulaireBase, CreateView):
 
     def get_success_url(self):
         return reverse("backoffice:facture_detail", args=[self.object.pk])
+
+
+class FactureImport(AccesModification, TemplateView):
+    """Entête + lignes en une fois, avec aperçu des erreurs avant écriture —
+    contrairement à FactureCreer (entête seule) qui suppose ensuite un import
+    CSV séparé en ligne de commande.
+
+    Structurellement différent des autres imports (ImportCSVBase suppose un
+    fichier qui produit directement des objets ; ici le fichier ne fournit que
+    les lignes, l'entête vient du formulaire, et il faut créer les deux plus
+    lancer le rapprochement) : vue dédiée plutôt qu'une sous-classe forcée.
+    """
+
+    template_name = "backoffice/import_facture.html"
+    cle_session = "import_facture_csv"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["titre"] = "Importer une facture prestataire"
+        contexte["url_retour"] = reverse("backoffice:factures")
+        contexte.setdefault("form", styliser(forms.ImportFactureForm()))
+        return contexte
+
+    def post(self, request, *args, **kwargs):
+        if request.POST.get("confirmer"):
+            return self._confirmer(request)
+        return self._analyser(request)
+
+    def _analyser(self, request):
+        from facturation.management.commands.importer_facture import COLONNES_ATTENDUES
+        from facturation.management.commands.importer_facture import LigneInvalide as ErreurCLI
+        from facturation.management.commands.importer_facture import analyser_ligne
+
+        form = styliser(forms.ImportFactureForm(request.POST, request.FILES))
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+
+        donnees = form.cleaned_data
+        contenu = request.FILES["fichier_csv"].read().decode("utf-8-sig")
+        lignes = imports.lire_csv(contenu)
+
+        erreurs = []
+        if not lignes:
+            erreurs = [(0, "le fichier ne contient aucune ligne de données")]
+        else:
+            manquantes = COLONNES_ATTENDUES - set(lignes[0])
+            if manquantes:
+                erreurs = [(0, f"colonnes obligatoires absentes : {', '.join(sorted(manquantes))}")]
+            else:
+                taux = donnees["prestataire"].taux_prise_en_charge
+                for numero, ligne in enumerate(lignes, start=2):
+                    try:
+                        analyser_ligne(ligne, taux, donnees["montant_colonne"])
+                    except ErreurCLI as erreur:
+                        erreurs.append((numero, str(erreur)))
+
+        rapport = {"erreurs": erreurs, "lignes_lues": len(lignes)}
+
+        if not erreurs:
+            request.session[self.cle_session] = {
+                "contenu": contenu,
+                "prestataire_id": donnees["prestataire"].pk,
+                "numero": donnees["numero"],
+                "mois": int(donnees["mois"]),
+                "annee": donnees["annee"],
+                "montant_total_declare": donnees["montant_total_declare"],
+                "montant_colonne": donnees["montant_colonne"],
+            }
+
+        return self.render_to_response(self.get_context_data(form=form, rapport=rapport))
+
+    def _confirmer(self, request):
+        from facturation.management.commands.importer_facture import creer_facture_avec_lignes
+
+        etat = request.session.pop(self.cle_session, None)
+        if not etat:
+            messages.error(request, "Le fichier analysé a expiré : réimportez-le.")
+            return redirect("backoffice:factures")
+
+        prestataire = get_object_or_404(Prestataire, pk=etat["prestataire_id"])
+        if Facture.objects.filter(prestataire=prestataire, numero=etat["numero"]).exists():
+            messages.error(request, "Cette facture a été enregistrée entre-temps : réimportez le fichier si besoin.")
+            return redirect("backoffice:factures")
+
+        lignes = imports.lire_csv(etat["contenu"])
+        with transaction.atomic():
+            facture, importees, erreurs = creer_facture_avec_lignes(
+                prestataire,
+                etat["numero"],
+                etat["mois"],
+                etat["annee"],
+                etat["montant_total_declare"],
+                lignes,
+                etat["montant_colonne"],
+            )
+            if erreurs:
+                transaction.set_rollback(True)
+            else:
+                facture.saisie_par = request.user
+                facture.save()
+
+        if erreurs:
+            messages.error(request, "Le fichier a changé entre l'analyse et la confirmation : réimportez-le.")
+            return redirect("backoffice:factures")
+
+        synthese = facture.synthese()
+        messages.success(
+            request,
+            f"Facture {facture.numero} importée ({importees} ligne(s)) : "
+            f"{synthese['concordantes']} concordante(s), {synthese['ecarts_montant']} écart(s) de montant, "
+            f"{synthese['ecarts_taux']} taux mal appliqué(s), {synthese['sans_prescription']} sans prescription, "
+            f"{synthese['non_facturees']} prescription(s) non facturée(s).",
+        )
+        return redirect("backoffice:facture_detail", pk=facture.pk)
 
 
 class FactureRapprocher(AccesModification, View):
@@ -767,6 +913,7 @@ class PrestataireListe(ListeBase):
     url_creation = "backoffice:prestataire_creer"
     libelle_creation = "Nouveau prestataire"
     url_detail = "backoffice:prestataire_modifier"
+    url_import = "backoffice:prestataire_import"
     champs_recherche = ("code", "nom", "ville")
     colonnes = (
         ("Code", "code"),
@@ -804,6 +951,29 @@ class PrestataireSupprimer(SupprimerBase):
     model = Prestataire
     url_liste = "backoffice:prestataires"
     libelle = "Prestataire"
+
+
+class PrestataireImport(ImportCSVBase):
+    titre = "Importer des prestataires"
+    aide = (
+        "Colonnes obligatoires : type (pharmacie/établissement/praticien), nom. "
+        "Facultatives : ville, adresse, telephone, taux (80 par défaut si absent), "
+        "statut (actif par défaut), code. Une ligne dont le code correspond à un "
+        "prestataire existant — ou, à défaut de code, dont le nom et la ville "
+        "correspondent — le met à jour au lieu d'en créer un doublon."
+    )
+    colonnes_attendues = frozenset({"type", "nom"})
+    url_liste = "backoffice:prestataires"
+    cle_session = "import_prestataires_csv"
+
+    def importer_ligne(self, ligne):
+        from prestataires.management.commands.importer_prestataires import LigneInvalide as ErreurCLI
+        from prestataires.management.commands.importer_prestataires import importer_ligne as importer_cli
+
+        try:
+            return importer_cli(ligne)
+        except ErreurCLI as erreur:
+            raise imports.LigneInvalide(str(erreur))
 
 
 class PrestataireTarifAjouter(AccesModification, View):

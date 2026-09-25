@@ -47,6 +47,62 @@ class LigneInvalide(Exception):
     pass
 
 
+def _taux(brut):
+    if not brut:
+        return Decimal("80")
+    try:
+        taux = Decimal(brut.replace(",", ".").replace("%", "").strip())
+    except InvalidOperation:
+        raise LigneInvalide(f"taux « {brut} » illisible")
+    if not 0 <= taux <= 100:
+        raise LigneInvalide(f"taux « {brut} » hors de l'intervalle 0–100")
+    return taux
+
+
+def importer_ligne(ligne):
+    """Analyse une ligne et applique la création/mise à jour du prestataire.
+
+    Fonction de module (pas une méthode de Command) pour être réutilisable
+    telle quelle par l'import web équivalent (backoffice.views.PrestataireImport).
+    """
+    nom = ligne.get("nom", "")
+    if not nom:
+        raise LigneInvalide("nom vide")
+
+    brut_type = ligne.get("type", "").lower()
+    type_prestataire = TYPES.get(brut_type)
+    if not type_prestataire:
+        raise LigneInvalide(
+            f"type « {ligne.get('type', '')} » inconnu (attendu : pharmacie, établissement ou praticien)"
+        )
+
+    champs = {
+        "type_prestataire": type_prestataire,
+        "nom": nom,
+        "ville": ligne.get("ville", ""),
+        "adresse": ligne.get("adresse", ""),
+        "telephone": ligne.get("telephone", "") or ligne.get("téléphone", ""),
+        "statut": STATUTS.get(ligne.get("statut", "").lower(), StatutPrestataire.ACTIF),
+        "taux_prise_en_charge": _taux(ligne.get("taux", "") or ligne.get("taux_prise_en_charge", "")),
+    }
+
+    code = ligne.get("code", "")
+    if code:
+        existant = Prestataire.objects.filter(code=code).first()
+        if not existant:
+            raise LigneInvalide(f"code « {code} » introuvable en base")
+    else:
+        existant = Prestataire.objects.filter(nom__iexact=nom, ville__iexact=champs["ville"]).first()
+
+    if existant:
+        for attribut, valeur in champs.items():
+            setattr(existant, attribut, valeur)
+        existant.save()
+        return existant, False
+
+    return Prestataire.objects.create(**champs), True
+
+
 class Command(BaseCommand):
     help = "Importe ou met à jour le réseau de prestataires conventionnés depuis un CSV."
 
@@ -84,7 +140,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             for numero, ligne in enumerate(lignes, start=2):
                 try:
-                    prestataire, cree = self._importer(ligne)
+                    prestataire, cree = importer_ligne(ligne)
                 except LigneInvalide as erreur:
                     erreurs.append((numero, str(erreur)))
                     continue
@@ -116,56 +172,6 @@ class Command(BaseCommand):
                 {(cle or "").strip().lower(): (valeur or "").strip() for cle, valeur in ligne.items()}
                 for ligne in lecteur
             ]
-
-    def _importer(self, ligne):
-        nom = ligne.get("nom", "")
-        if not nom:
-            raise LigneInvalide("nom vide")
-
-        brut_type = ligne.get("type", "").lower()
-        type_prestataire = TYPES.get(brut_type)
-        if not type_prestataire:
-            raise LigneInvalide(
-                f"type « {ligne.get('type', '')} » inconnu "
-                f"(attendu : pharmacie, établissement ou praticien)"
-            )
-
-        champs = {
-            "type_prestataire": type_prestataire,
-            "nom": nom,
-            "ville": ligne.get("ville", ""),
-            "adresse": ligne.get("adresse", ""),
-            "telephone": ligne.get("telephone", "") or ligne.get("téléphone", ""),
-            "statut": STATUTS.get(ligne.get("statut", "").lower(), StatutPrestataire.ACTIF),
-            "taux_prise_en_charge": self._taux(ligne.get("taux", "") or ligne.get("taux_prise_en_charge", "")),
-        }
-
-        code = ligne.get("code", "")
-        if code:
-            existant = Prestataire.objects.filter(code=code).first()
-            if not existant:
-                raise LigneInvalide(f"code « {code} » introuvable en base")
-        else:
-            existant = Prestataire.objects.filter(nom__iexact=nom, ville__iexact=champs["ville"]).first()
-
-        if existant:
-            for attribut, valeur in champs.items():
-                setattr(existant, attribut, valeur)
-            existant.save()
-            return existant, False
-
-        return Prestataire.objects.create(**champs), True
-
-    def _taux(self, brut):
-        if not brut:
-            return Decimal("80")
-        try:
-            taux = Decimal(brut.replace(",", ".").replace("%", "").strip())
-        except InvalidOperation:
-            raise LigneInvalide(f"taux « {brut} » illisible")
-        if not 0 <= taux <= 100:
-            raise LigneInvalide(f"taux « {brut} » hors de l'intervalle 0–100")
-        return taux
 
     def _rapport(self, crees, majs, erreurs, simulation):
         titre = "SIMULATION (aucune écriture)" if simulation else "IMPORT EFFECTUÉ"

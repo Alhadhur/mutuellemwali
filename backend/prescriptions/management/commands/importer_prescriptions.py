@@ -40,6 +40,115 @@ class LigneInvalide(Exception):
     pass
 
 
+# --- Fonctions de module ----------------------------------------------------
+# Extraites des méthodes de Command pour être réutilisables telles quelles par
+# l'import web équivalent (backoffice.views.PrescriptionImport), qui ne
+# reprend que le mode « conserver » — le mode « rejouer » est un outil de
+# mesure des règles de détection, pas un chargement de données.
+
+
+def analyser_ligne(ligne):
+    """Traduit une ligne du fichier en objets métier, sans rien écrire."""
+    matricule = ligne["agent"]
+    agent = Agent.objects.filter(utilisateur__matricule__iexact=matricule).first()
+    if not agent:
+        raise LigneInvalide(f"agent « {matricule} » introuvable")
+
+    reference = ligne["prestataire"]
+    prestataire = (
+        Prestataire.objects.filter(code__iexact=reference).first()
+        or Prestataire.objects.filter(nom__iexact=reference).first()
+    )
+    if not prestataire:
+        raise LigneInvalide(f"prestataire « {reference} » introuvable (ni code, ni nom)")
+
+    ayant_droit = None
+    nom_ayant_droit = ligne.get("ayant_droit", "")
+    if nom_ayant_droit:
+        ayant_droit = _trouver_ayant_droit(agent, nom_ayant_droit)
+
+    return {
+        "agent": agent,
+        "prestataire": prestataire,
+        "ayant_droit": ayant_droit,
+        "numero_ordonnance": ligne["numero_ordonnance"] or "",
+        "montant_total": _entier(ligne["montant_total"], "montant_total"),
+        "date_emission": _date(ligne["date_emission"]),
+        "statut": _statut(ligne.get("statut", "")),
+        "montant_rembourse": (
+            _entier(ligne["montant_rembourse"], "montant_rembourse") if ligne.get("montant_rembourse") else None
+        ),
+    }
+
+
+def _trouver_ayant_droit(agent, libelle):
+    for candidat in agent.ayants_droit.all():
+        noms = {f"{candidat.prenom} {candidat.nom}".lower(), f"{candidat.nom} {candidat.prenom}".lower()}
+        if libelle.lower() in noms:
+            return candidat
+    raise LigneInvalide(f"ayant droit « {libelle} » non rattaché à l'agent {agent.matricule}")
+
+
+def _entier(brut, champ):
+    nettoye = brut.replace(" ", "").replace(" ", "").replace(",", ".")
+    try:
+        valeur = float(nettoye)
+    except ValueError:
+        raise LigneInvalide(f"{champ} « {brut } » illisible")
+    if valeur < 0:
+        raise LigneInvalide(f"{champ} négatif")
+    # Le KMF n'a pas de sous-unité : on arrondit au franc le plus proche.
+    return int(round(valeur))
+
+
+def _date(brut):
+    for format_date in FORMATS_DATE:
+        try:
+            return datetime.strptime(brut, format_date).date()
+        except ValueError:
+            continue
+    raise LigneInvalide(f"date « {brut} » illisible (formats acceptés : {', '.join(FORMATS_DATE)})")
+
+
+def _statut(brut):
+    if not brut:
+        return StatutPrescription.SOUMISE
+    statut = STATUTS.get(brut.lower())
+    if not statut:
+        raise LigneInvalide(f"statut « {brut} » inconnu")
+    return statut
+
+
+def creer_prescription(donnees, justificatif=""):
+    """Écrit la prescription telle que l'historique la fait foi : les règles
+    de détection actuelles ne doivent pas réécrire une décision déjà prise
+    (`save(detecter=False)`)."""
+    prescription = Prescription(
+        agent=donnees["agent"],
+        ayant_droit=donnees["ayant_droit"],
+        prestataire=donnees["prestataire"],
+        numero_ordonnance=donnees["numero_ordonnance"],
+        montant_total=donnees["montant_total"],
+        date_emission=donnees["date_emission"],
+        statut=donnees["statut"],
+        justificatif=justificatif,
+    )
+    prescription.montant_rembourse = (
+        donnees["montant_rembourse"]
+        if donnees["montant_rembourse"] is not None
+        else prescription.calculer_montant_rembourse()
+    )
+    prescription.save(detecter=False)
+    return prescription
+
+
+def importer_ligne(ligne):
+    """Contrat attendu par backoffice.imports.executer : (objet, créé)."""
+    donnees = analyser_ligne(ligne)
+    prescription = creer_prescription(donnees, justificatif=ligne.get("justificatif", ""))
+    return prescription, True
+
+
 class Command(BaseCommand):
     help = "Importe un historique de prescriptions, ou confronte les règles de détection à cet historique."
 
@@ -92,75 +201,6 @@ class Command(BaseCommand):
                 for ligne in lecteur
             ]
 
-    def _analyser(self, ligne):
-        """Traduit une ligne du fichier en objets métier, sans rien écrire."""
-        matricule = ligne["agent"]
-        agent = Agent.objects.filter(utilisateur__matricule__iexact=matricule).first()
-        if not agent:
-            raise LigneInvalide(f"agent « {matricule} » introuvable")
-
-        reference = ligne["prestataire"]
-        prestataire = (
-            Prestataire.objects.filter(code__iexact=reference).first()
-            or Prestataire.objects.filter(nom__iexact=reference).first()
-        )
-        if not prestataire:
-            raise LigneInvalide(f"prestataire « {reference} » introuvable (ni code, ni nom)")
-
-        ayant_droit = None
-        nom_ayant_droit = ligne.get("ayant_droit", "")
-        if nom_ayant_droit:
-            ayant_droit = self._trouver_ayant_droit(agent, nom_ayant_droit)
-
-        return {
-            "agent": agent,
-            "prestataire": prestataire,
-            "ayant_droit": ayant_droit,
-            "numero_ordonnance": ligne["numero_ordonnance"] or "",
-            "montant_total": self._entier(ligne["montant_total"], "montant_total"),
-            "date_emission": self._date(ligne["date_emission"]),
-            "statut": self._statut(ligne.get("statut", "")),
-            "montant_rembourse": (
-                self._entier(ligne["montant_rembourse"], "montant_rembourse")
-                if ligne.get("montant_rembourse")
-                else None
-            ),
-        }
-
-    def _trouver_ayant_droit(self, agent, libelle):
-        for candidat in agent.ayants_droit.all():
-            noms = {f"{candidat.prenom} {candidat.nom}".lower(), f"{candidat.nom} {candidat.prenom}".lower()}
-            if libelle.lower() in noms:
-                return candidat
-        raise LigneInvalide(f"ayant droit « {libelle} » non rattaché à l'agent {agent.matricule}")
-
-    def _entier(self, brut, champ):
-        nettoye = brut.replace(" ", "").replace(" ", "").replace(",", ".")
-        try:
-            valeur = float(nettoye)
-        except ValueError:
-            raise LigneInvalide(f"{champ} « {brut } » illisible")
-        if valeur < 0:
-            raise LigneInvalide(f"{champ} négatif")
-        # Le KMF n'a pas de sous-unité : on arrondit au franc le plus proche.
-        return int(round(valeur))
-
-    def _date(self, brut):
-        for format_date in FORMATS_DATE:
-            try:
-                return datetime.strptime(brut, format_date).date()
-            except ValueError:
-                continue
-        raise LigneInvalide(f"date « {brut} » illisible (formats acceptés : {', '.join(FORMATS_DATE)})")
-
-    def _statut(self, brut):
-        if not brut:
-            return StatutPrescription.SOUMISE
-        statut = STATUTS.get(brut.lower())
-        if not statut:
-            raise LigneInvalide(f"statut « {brut} » inconnu")
-        return statut
-
     # --- mode conserver ---------------------------------------------------
 
     def _conserver(self, lignes, simulation):
@@ -168,27 +208,12 @@ class Command(BaseCommand):
         with transaction.atomic():
             for numero, ligne in enumerate(lignes, start=2):
                 try:
-                    donnees = self._analyser(ligne)
+                    donnees = analyser_ligne(ligne)
                 except LigneInvalide as erreur:
                     erreurs.append((numero, str(erreur)))
                     continue
 
-                prescription = Prescription(
-                    agent=donnees["agent"],
-                    ayant_droit=donnees["ayant_droit"],
-                    prestataire=donnees["prestataire"],
-                    numero_ordonnance=donnees["numero_ordonnance"],
-                    montant_total=donnees["montant_total"],
-                    date_emission=donnees["date_emission"],
-                    statut=donnees["statut"],
-                    justificatif=ligne.get("justificatif", ""),
-                )
-                prescription.montant_rembourse = (
-                    donnees["montant_rembourse"]
-                    if donnees["montant_rembourse"] is not None
-                    else prescription.calculer_montant_rembourse()
-                )
-                prescription.save(detecter=False)
+                creer_prescription(donnees, justificatif=ligne.get("justificatif", ""))
                 importees += 1
 
             # Tout ou rien : un historique à moitié chargé fausserait toutes
@@ -221,7 +246,7 @@ class Command(BaseCommand):
         analysees = []
         for numero, ligne in enumerate(lignes, start=2):
             try:
-                analysees.append((numero, self._analyser(ligne)))
+                analysees.append((numero, analyser_ligne(ligne)))
             except LigneInvalide as erreur:
                 erreurs.append((numero, str(erreur)))
 

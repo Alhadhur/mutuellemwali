@@ -37,9 +37,11 @@ urlpatterns = [
     path("prescriptions/<int:pk>/", views.PrescriptionDetail.as_view(), name="prescription_detail"),
     path("prescriptions/<int:pk>/statut/", views.PrescriptionChangerStatut.as_view(), name="prescription_statut"),
     path("prescriptions/<int:pk>/supprimer/", views.PrescriptionSupprimer.as_view(), name="prescription_supprimer"),
+    path("prescriptions/importer/", views.PrescriptionImport.as_view(), name="prescription_import"),
 
     path("factures/", views.FactureListe.as_view(), name="factures"),
     path("factures/nouvelle/", views.FactureCreer.as_view(), name="facture_creer"),
+    path("factures/importer/", views.FactureImport.as_view(), name="facture_import"),
     path("factures/<int:pk>/", views.FactureDetail.as_view(), name="facture_detail"),
     path("factures/<int:pk>/rapprocher/", views.FactureRapprocher.as_view(), name="facture_rapprocher"),
     path("factures/<int:pk>/valider/", views.FactureValider.as_view(), name="facture_valider"),
@@ -47,6 +49,7 @@ urlpatterns = [
 
     path("prestataires/", views.PrestataireListe.as_view(), name="prestataires"),
     path("prestataires/nouveau/", views.PrestataireCreer.as_view(), name="prestataire_creer"),
+    path("prestataires/importer/", views.PrestataireImport.as_view(), name="prestataire_import"),
     path("prestataires/<int:pk>/", views.PrestataireModifier.as_view(), name="prestataire_modifier"),
     path("prestataires/<int:pk>/statut/", views.PrestataireBasculerStatut.as_view(), name="prestataire_statut"),
     path("prestataires/<int:pk>/supprimer/", views.PrestataireSupprimer.as_view(), name="prestataire_supprimer"),
