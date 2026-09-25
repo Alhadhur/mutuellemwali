@@ -14,6 +14,7 @@ que le faire revoyager par le client.
 """
 import csv
 import io
+import unicodedata
 from datetime import datetime
 
 from django.db import transaction
@@ -36,6 +37,14 @@ def date_ou_erreur(brut, champ="date"):
     raise LigneInvalide(f"{champ} « {brut} » illisible (formats acceptés : {', '.join(FORMATS_DATE)})")
 
 
+def sans_accents(texte):
+    """« Prénom », « Téléphone »… doivent reconnaître les colonnes « prenom »,
+    « telephone » attendues par l'import — notamment parce que nos propres
+    exports (voir backoffice/views.py, UtilisateurExport et consorts) mettent
+    des en-têtes accentués, pour rester lisibles à l'écran et dans Excel."""
+    return "".join(c for c in unicodedata.normalize("NFKD", texte) if not unicodedata.combining(c))
+
+
 def lire_csv(contenu):
     try:
         delimiteur = csv.Sniffer().sniff(contenu[:4096], delimiters=",;\t").delimiter
@@ -43,7 +52,7 @@ def lire_csv(contenu):
         delimiteur = ","
     lecteur = csv.DictReader(io.StringIO(contenu), delimiter=delimiteur)
     return [
-        {(cle or "").strip().lower(): (valeur or "").strip() for cle, valeur in ligne.items()}
+        {sans_accents((cle or "").strip().lower()): (valeur or "").strip() for cle, valeur in ligne.items()}
         for ligne in lecteur
     ]
 

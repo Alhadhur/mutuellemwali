@@ -386,6 +386,29 @@ class ImportsWebTest(BaseBackoffice):
         super().setUp()
         self.client.force_login(self.rh)
 
+    # --- En-têtes accentués --------------------------------------------
+    # Nos propres exports (UtilisateurExport, AyantDroitExport…) mettent des
+    # en-têtes accentués (« Prénom », « Téléphone »…) pour rester lisibles à
+    # l'écran ; l'import doit reconnaître ces mêmes en-têtes sans que
+    # l'utilisateur ait à les retaper en ASCII.
+
+    def test_import_utilisateurs_reconnait_les_en_tetes_accentues_de_l_export(self):
+        contenu = (
+            "Matricule;Nom;Prénom;Email;Téléphone;Rôle;Région;Actif\n"
+            "156;RAMADANE;SAID MLIMI;;337 66 51;Agent (bénéficiaire);Moheli;oui\n"
+        )
+        self.client.post(reverse("backoffice:utilisateur_import"), {"fichier": fichier_csv(contenu)})
+
+        self.client.post(reverse("backoffice:utilisateur_import"), {"confirmer": "1"})
+
+        utilisateur = Utilisateur.objects.get(matricule="156")
+        self.assertEqual(utilisateur.nom, "RAMADANE")
+        self.assertEqual(utilisateur.prenom, "SAID MLIMI")
+        self.assertEqual(utilisateur.telephone, "337 66 51")
+        self.assertEqual(utilisateur.role, Role.AGENT)
+        self.assertEqual(utilisateur.region, "Moheli")
+        self.assertTrue(utilisateur.is_active)
+
     # --- Prestataires -------------------------------------------------
 
     def test_import_prestataires_apercu_signale_l_erreur_sans_rien_ecrire(self):

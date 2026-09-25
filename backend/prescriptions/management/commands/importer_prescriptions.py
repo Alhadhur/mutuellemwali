@@ -23,6 +23,7 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from backoffice.imports import sans_accents
 from beneficiaires.models import Agent, AyantDroit
 from prescriptions.models import FENETRE_DOUBLON_JOURS, Prescription, StatutPrescription
 from prestataires.models import Prestataire
@@ -197,7 +198,7 @@ class Command(BaseCommand):
                     delimiteur = ","
             lecteur = csv.DictReader(fichier, delimiter=delimiteur)
             return [
-                {(cle or "").strip().lower(): (valeur or "").strip() for cle, valeur in ligne.items()}
+                {sans_accents((cle or "").strip().lower()): (valeur or "").strip() for cle, valeur in ligne.items()}
                 for ligne in lecteur
             ]
 
