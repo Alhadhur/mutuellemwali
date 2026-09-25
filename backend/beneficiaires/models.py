@@ -38,7 +38,7 @@ class Agent(models.Model):
     )
     site = models.CharField(max_length=100)
     date_naissance = models.DateField(null=True, blank=True)
-    date_embauche = models.DateField()
+    date_embauche = models.DateField(null=True, blank=True)
     actif = models.BooleanField(default=True)
 
     class Meta:
