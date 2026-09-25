@@ -1,0 +1,68 @@
+{% extends "backoffice/base.html" %}
+{% load humanize %}
+
+{% block titre %}Mon tableau de bord{% endblock %}
+{% block entete %}Mon tableau de bord{% endblock %}
+
+{% block contenu %}
+  <div class="barre-actions">
+    <span style="font-size:13px;color:var(--muted);">
+      {{ agent.utilisateur.get_full_name }} — matricule {{ agent.matricule }}{% if agent.site %} — {{ agent.site }}{% endif %}
+    </span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="value">{{ quota|floatformat:0|intcomma }}</div><div class="label">Quota du cycle (KMF)</div></div>
+    <div class="kpi"><div class="value">{{ consommation|floatformat:0|intcomma }}</div><div class="label">Consommé sur le cycle</div></div>
+    <div class="kpi"><div class="value" style="color:{% if solde < 0 %}var(--danger){% else %}var(--ok){% endif %};">{{ solde|floatformat:0|intcomma }}</div><div class="label">Solde restant (KMF)</div></div>
+    <div class="kpi"><div class="value">{{ cotisation|floatformat:0|intcomma }}</div><div class="label">Cotisation mensuelle (KMF)</div></div>
+  </div>
+  <p style="margin:-10px 0 24px;font-size:12.5px;color:var(--muted);">
+    Enveloppe partagée avec vos ayants droit, période du {{ periode_debut|date:"d/m/Y" }} au {{ periode_fin|date:"d/m/Y" }}.
+  </p>
+
+  <section>
+    <h2>👪 Mes ayants droit</h2>
+    {% if ayants_droit %}
+    <table>
+      <tr><th>Nom</th><th>Lien</th><th>Âge</th><th>Statut</th><th>Alertes</th></tr>
+      {% for a in ayants_droit %}
+      <tr>
+        <td>{{ a.prenom }} {{ a.nom }}</td>
+        <td>{{ a.get_lien_parente_display }}</td>
+        <td>{% if a.age is not None %}{{ a.age }} ans{% else %}—{% endif %}</td>
+        <td>{{ a.get_statut_verification_display }}</td>
+        <td>
+          {% if a.est_expire %}<span class="badge badge-danger">Justificatif expiré</span>{% endif %}
+          {% if a.limite_age_depassee %}<span class="badge badge-danger">Limite d'âge dépassée</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">Aucun ayant droit enregistré.</div>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>🧾 Mes prescriptions récentes</h2>
+    {% if prescriptions %}
+    <table>
+      <tr><th>N° ordonnance</th><th>Bénéficiaire</th><th>Prestataire</th><th>Montant</th><th>Remboursé</th><th>Date</th><th>Statut</th></tr>
+      {% for p in prescriptions %}
+      <tr>
+        <td>{{ p.numero_ordonnance }}</td>
+        <td>{{ p.beneficiaire }}</td>
+        <td>{{ p.prestataire.nom }}</td>
+        <td>{{ p.montant_total }} KMF</td>
+        <td>{{ p.montant_rembourse }} KMF</td>
+        <td>{{ p.date_emission|date:"d/m/Y" }}</td>
+        <td>{{ p.get_statut_display }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">Aucune prescription enregistrée.</div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -29,6 +29,10 @@ class Section:
 
 MENU: tuple[Section, ...] = (
     Section(
+        "Mon espace",
+        (Entree("Mon tableau de bord", "backoffice:mon_tableau_de_bord", "🏠", roles=(Role.AGENT,)),),
+    ),
+    Section(
         "Pilotage",
         (
             Entree("Tableau de bord", "backoffice:tableau_de_bord", "📊"),

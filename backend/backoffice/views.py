@@ -54,6 +54,15 @@ class AccesModification(AccesBackoffice):
         )
 
 
+class AccesAgent(LoginRequiredMixin, UserPassesTestMixin):
+    """Le tableau de bord agent, réservé à l'intéressé — pas de fiche Agent,
+    pas d'accès (même règle que EstAgent côté API mobile)."""
+
+    def test_func(self):
+        utilisateur = self.request.user
+        return utilisateur.is_authenticated and utilisateur.role == Role.AGENT and hasattr(utilisateur, "agent")
+
+
 class ListeBase(AccesBackoffice, ListView):
     template_name = "backoffice/liste.html"
     paginate_by = 25
@@ -285,6 +294,21 @@ class SupprimerBase(AccesModification, View):
 class TableauDeBordView(AccesBackoffice, TemplateView):
     template_name = "backoffice/tableau_de_bord.html"
 
+    def test_func(self):
+        utilisateur = self.request.user
+        return utilisateur.is_authenticated and (
+            utilisateur.is_superuser or utilisateur.role in (Role.RH, Role.DIRECTION, Role.AGENT)
+        )
+
+    def get(self, request, *args, **kwargs):
+        # Ce tableau de bord (anomalies) est celui du service mutuelle ; un
+        # agent qui atterrit ici après connexion (LOGIN_REDIRECT_URL) part
+        # sur le sien. is_superuser passe outre, pour un compte de test qui
+        # cumulerait les deux rôles.
+        if request.user.role == Role.AGENT and not request.user.is_superuser:
+            return redirect("backoffice:mon_tableau_de_bord")
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         from anomalies import services
         from rapports import services as rapports_services
@@ -301,6 +325,33 @@ class TableauDeBordView(AccesBackoffice, TemplateView):
         contexte["tendance_mensuelle"] = tendance
         contexte["mois_courant"] = tendance[-1]
         contexte["tendance_max"] = max((mois["montant"] for mois in tendance), default=0) or 1
+        return contexte
+
+
+class MonTableauDeBord(AccesAgent, TemplateView):
+    """Web, en attendant l'usage officiel de l'application mobile par les
+    agents (voir la décision sur le justificatif facultatif) : même contenu
+    que l'écran « Mon profil » du mobile (quota, ayants droit, historique),
+    mais un agent ne peut voir que le sien — pas celui des autres."""
+
+    template_name = "backoffice/mon_tableau_de_bord.html"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        agent = self.request.user.agent
+        debut, fin = agent.periode_courante()
+
+        contexte["agent"] = agent
+        contexte["quota"] = agent.quota_effectif
+        contexte["consommation"] = agent.consommation_periode()
+        contexte["solde"] = agent.solde_quota()
+        contexte["periode_debut"] = debut
+        contexte["periode_fin"] = fin
+        contexte["cotisation"] = agent.cotisation_mensuelle
+        contexte["ayants_droit"] = agent.ayants_droit.all()
+        contexte["prescriptions"] = (
+            agent.prescriptions.select_related("prestataire", "ayant_droit", "nature").order_by("-date_creation")[:30]
+        )
         return contexte
 
 

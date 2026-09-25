@@ -63,6 +63,51 @@ class AccesTest(BaseBackoffice):
         self.assertIn("/login/", reponse.url)
 
 
+class TableauDeBordAgentTest(BaseBackoffice):
+    """En attendant l'usage officiel de l'application mobile, un agent qui se
+    connecte au back-office doit avoir un endroit à lui plutôt qu'un 403."""
+
+    def test_un_agent_est_redirige_vers_son_propre_tableau_de_bord(self):
+        self.client.force_login(self.compte_agent)
+
+        reponse = self.client.get(reverse("backoffice:tableau_de_bord"), follow=True)
+
+        self.assertEqual(reponse.redirect_chain[-1][0], reverse("backoffice:mon_tableau_de_bord"))
+
+    def test_le_rh_n_est_pas_redirige(self):
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:tableau_de_bord"))
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, "Tableau de bord anomalies")
+
+    def test_le_tableau_de_bord_agent_n_affiche_que_ses_propres_donnees(self):
+        autre_compte = Utilisateur.objects.create_user("A0002", "x", nom="Autre", prenom="Personne", role=Role.AGENT)
+        autre_agent = Agent.objects.create(utilisateur=autre_compte, site="Moroni")
+        Prescription.objects.create(
+            agent=autre_agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-AUTRE",
+            montant_total=5000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+        self.client.force_login(self.compte_agent)
+
+        reponse = self.client.get(reverse("backoffice:mon_tableau_de_bord"))
+
+        self.assertContains(reponse, "ORD-1")
+        self.assertNotContains(reponse, "ORD-AUTRE")
+
+    def test_un_utilisateur_sans_fiche_agent_est_bloque(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.get(reverse("backoffice:mon_tableau_de_bord"))
+
+        self.assertEqual(reponse.status_code, 403)
+
+
 class ListesTest(BaseBackoffice):
     def setUp(self):
         super().setUp()
