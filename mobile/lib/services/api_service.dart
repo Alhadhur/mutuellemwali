@@ -105,6 +105,62 @@ class ApiService {
     return Utilisateur.fromJson(jsonDecode(utf8.decode(response.bodyBytes)));
   }
 
+  Future<MonCompte> getMonCompte() async {
+    final response = await _authorizedRequest(
+      (headers) => http.get(Uri.parse('$_baseUrl/mon-compte/'), headers: headers),
+    );
+    _ensureOk(response);
+    return MonCompte.fromJson(jsonDecode(utf8.decode(response.bodyBytes)));
+  }
+
+  /// Coordonnées modifiables en libre-service (le matricule et le rôle ne le
+  /// sont pas : ce n'est pas un écran d'administration).
+  Future<void> majMonCompte({
+    required String nom,
+    required String prenom,
+    required String email,
+    required String telephone,
+    required String region,
+  }) async {
+    final response = await _authorizedRequest(
+      (headers) => http.patch(
+        Uri.parse('$_baseUrl/mon-compte/'),
+        headers: {...headers, 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'nom': nom,
+          'prenom': prenom,
+          'email': email,
+          'telephone': telephone,
+          'region': region,
+        }),
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw ApiException(_formatErrors(jsonDecode(utf8.decode(response.bodyBytes))));
+    }
+  }
+
+  Future<void> changerMonMotDePasse({
+    required String motDePasseActuel,
+    required String motDePasse,
+    required String confirmation,
+  }) async {
+    final response = await _authorizedRequest(
+      (headers) => http.post(
+        Uri.parse('$_baseUrl/mon-compte/mot-de-passe/'),
+        headers: {...headers, 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'mot_de_passe_actuel': motDePasseActuel,
+          'mot_de_passe': motDePasse,
+          'confirmation': confirmation,
+        }),
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw ApiException(_formatErrors(jsonDecode(utf8.decode(response.bodyBytes))));
+    }
+  }
+
   Future<AgentProfil> getProfilAgent() async {
     final response = await _authorizedRequest(
       (headers) => http.get(Uri.parse('$_baseUrl/agent/profil/'), headers: headers),

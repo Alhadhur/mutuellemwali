@@ -7,6 +7,9 @@ app_name = "backoffice"
 urlpatterns = [
     path("", views.TableauDeBordView.as_view(), name="tableau_de_bord"),
 
+    path("mon-profil/", views.MonProfil.as_view(), name="mon_profil"),
+    path("mon-profil/mot-de-passe/", views.MonMotDePasse.as_view(), name="mon_mot_de_passe"),
+
     path("anomalies/", views.AnomaliesView.as_view(), name="anomalies"),
     path("anomalies/export/", views.AnomaliesExport.as_view(), name="anomalies_export"),
     path("anomalies/export/<str:famille>/", views.AnomaliesExport.as_view(), name="anomalies_export_famille"),

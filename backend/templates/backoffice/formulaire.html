@@ -32,6 +32,15 @@
   </form>
 </section>
 
+{% if url_mon_mot_de_passe %}
+  <section>
+    <h2>Mot de passe</h2>
+    <div style="padding:18px;">
+      <a class="btn btn-secondaire" href="{{ url_mon_mot_de_passe }}">Changer mon mot de passe</a>
+    </div>
+  </section>
+{% endif %}
+
 {% if utilisateur_edite %}
   <section>
     <h2>Mot de passe</h2>

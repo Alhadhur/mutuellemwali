@@ -10,6 +10,8 @@ from prestataires.models import Prestataire, StatutPrestataire
 from .permissions import EstAgent
 from .serializers import (
     AgentProfilSerializer,
+    MonCompteSerializer,
+    MonMotDePasseSerializer,
     NatureSoinSerializer,
     PrescriptionSerializer,
     PrestataireSerializer,
@@ -24,6 +26,29 @@ class MoiView(APIView):
 
     def get(self, request):
         return Response(UtilisateurSerializer(request.user).data)
+
+
+class MonCompteView(generics.RetrieveUpdateAPIView):
+    """Coordonnées du compte connecté, en libre-service : accessible à tout
+    utilisateur authentifié, quel que soit son rôle (agent, RH, direction…),
+    contrairement aux écrans d'administration réservés au RH."""
+
+    serializer_class = MonCompteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+
+class MonMotDePasseView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = MonMotDePasseSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["mot_de_passe"])
+        request.user.save()
+        return Response({"detail": "Mot de passe mis à jour."})
 
 
 class AgentProfilView(generics.RetrieveAPIView):

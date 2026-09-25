@@ -4,6 +4,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../widgets/app_drawer.dart';
 import 'login_screen.dart';
+import 'mon_profil_edit_screen.dart';
 import 'profil_tab.dart';
 import 'ayants_droit_tab.dart';
 import 'prescriptions_tab.dart';
@@ -49,6 +50,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _modifierMonProfil() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const MonProfilEditScreen()),
+    );
+    // Le nom/la région affichés dans l'en-tête du menu ont pu changer.
+    _chargerUtilisateur();
+  }
+
   Future<void> _nouvellePrescription() async {
     final cree = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const PrescriptionFormScreen()),
@@ -88,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SectionMenu(
           titre: 'Compte',
           entrees: [
+            EntreeMenu(icone: Icons.manage_accounts_outlined, libelle: 'Modifier mon profil', action: _modifierMonProfil),
             EntreeMenu(icone: Icons.logout, libelle: 'Se déconnecter', action: _seDeconnecter),
           ],
         ),

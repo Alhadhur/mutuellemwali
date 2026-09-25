@@ -66,6 +66,38 @@ class ImportCSVForm(forms.Form):
     fichier = forms.FileField(label="Fichier CSV")
 
 
+class MonProfilForm(forms.ModelForm):
+    """Édition en libre-service : contrairement à UtilisateurForm, ni le
+    matricule, ni le rôle, ni l'activation ne sont modifiables ici — ce n'est
+    pas un écran d'administration."""
+
+    class Meta:
+        model = Utilisateur
+        fields = ["nom", "prenom", "email", "telephone", "region"]
+
+
+class MonMotDePasseForm(forms.Form):
+    mot_de_passe_actuel = forms.CharField(widget=forms.PasswordInput, label="Mot de passe actuel")
+    mot_de_passe = forms.CharField(widget=forms.PasswordInput, label="Nouveau mot de passe")
+    confirmation = forms.CharField(widget=forms.PasswordInput, label="Confirmer le nouveau mot de passe")
+
+    def __init__(self, utilisateur, *args, **kwargs):
+        self.utilisateur = utilisateur
+        super().__init__(*args, **kwargs)
+
+    def clean_mot_de_passe_actuel(self):
+        valeur = self.cleaned_data["mot_de_passe_actuel"]
+        if not self.utilisateur.check_password(valeur):
+            raise forms.ValidationError("Mot de passe actuel incorrect.")
+        return valeur
+
+    def clean(self):
+        donnees = super().clean()
+        if donnees.get("mot_de_passe") != donnees.get("confirmation"):
+            raise forms.ValidationError("Les deux mots de passe ne correspondent pas.")
+        return donnees
+
+
 class AgentForm(forms.ModelForm):
     """Le quota n'est pas saisi : il découle du barème appliqué à la
     composition familiale."""

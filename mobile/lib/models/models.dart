@@ -36,6 +36,36 @@ class Utilisateur {
       );
 }
 
+class MonCompte {
+  final String matricule;
+  final String nom;
+  final String prenom;
+  final String email;
+  final String telephone;
+  final String region;
+  final String roleDisplay;
+
+  MonCompte({
+    required this.matricule,
+    required this.nom,
+    required this.prenom,
+    required this.email,
+    required this.telephone,
+    required this.region,
+    required this.roleDisplay,
+  });
+
+  factory MonCompte.fromJson(Map<String, dynamic> json) => MonCompte(
+        matricule: json['matricule'],
+        nom: json['nom'],
+        prenom: json['prenom'],
+        email: json['email'] ?? '',
+        telephone: json['telephone'] ?? '',
+        region: json['region'] ?? '',
+        roleDisplay: json['role_display'] ?? '',
+      );
+}
+
 class AyantDroit {
   final int id;
   final String nom;

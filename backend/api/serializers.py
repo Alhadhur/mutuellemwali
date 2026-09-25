@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from accounts.models import Utilisateur
 from beneficiaires.models import Agent, AyantDroit
 from parametrage.models import NatureSoin
 from prescriptions.models import HistoriqueStatut, Prescription
@@ -15,6 +16,35 @@ class UtilisateurSerializer(serializers.Serializer):
     role_display = serializers.CharField(source="get_role_display")
     region = serializers.CharField()
     photo = serializers.ImageField()
+
+
+class MonCompteSerializer(serializers.ModelSerializer):
+    """Coordonnées du compte connecté, modifiables en libre-service depuis
+    l'app mobile — matricule et rôle restent en lecture seule, ce n'est pas
+    un écran d'administration."""
+
+    role_display = serializers.CharField(source="get_role_display", read_only=True)
+
+    class Meta:
+        model = Utilisateur
+        fields = ["matricule", "nom", "prenom", "email", "telephone", "region", "role_display"]
+        read_only_fields = ["matricule", "role_display"]
+
+
+class MonMotDePasseSerializer(serializers.Serializer):
+    mot_de_passe_actuel = serializers.CharField(write_only=True)
+    mot_de_passe = serializers.CharField(write_only=True)
+    confirmation = serializers.CharField(write_only=True)
+
+    def validate_mot_de_passe_actuel(self, valeur):
+        if not self.context["request"].user.check_password(valeur):
+            raise serializers.ValidationError("Mot de passe actuel incorrect.")
+        return valeur
+
+    def validate(self, donnees):
+        if donnees.get("mot_de_passe") != donnees.get("confirmation"):
+            raise serializers.ValidationError({"confirmation": "Les deux mots de passe ne correspondent pas."})
+        return donnees
 
 
 class AyantDroitSerializer(serializers.ModelSerializer):

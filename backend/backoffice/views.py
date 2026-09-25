@@ -7,6 +7,7 @@ soit un nom d'attribut/méthode du modèle, soit un appelable recevant l'objet.
 
 from django import forms as django_forms
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Q
 from django.http import Http404, JsonResponse
@@ -191,6 +192,62 @@ class ImportCSVBase(AccesModification, TemplateView):
             request, f"{self.titre} : {rapport['crees']} création(s), {rapport['maj']} mise(s) à jour."
         )
         return redirect(self.url_liste)
+
+
+# --- Mon profil -------------------------------------------------------------
+# Accessible à tout utilisateur connecté, quel que soit son rôle : contrairement
+# aux écrans « Utilisateurs », ce n'est pas de l'administration, on n'agit que
+# sur son propre compte (matricule, rôle et activation restent en lecture seule).
+
+
+class MonProfil(LoginRequiredMixin, UpdateView):
+    model = Utilisateur
+    form_class = forms.MonProfilForm
+    template_name = "backoffice/formulaire.html"
+    titre = "Mon profil"
+    success_url = reverse_lazy("backoffice:mon_profil")
+
+    def get_object(self, queryset=None):
+        return self.request.user
+
+    def get_form(self, form_class=None):
+        return styliser(super().get_form(form_class))
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["titre"] = self.titre
+        contexte["url_retour"] = self.success_url
+        contexte["url_mon_mot_de_passe"] = reverse("backoffice:mon_mot_de_passe")
+        return contexte
+
+    def form_valid(self, form):
+        reponse = super().form_valid(form)
+        messages.success(self.request, "Profil mis à jour.")
+        return reponse
+
+
+class MonMotDePasse(LoginRequiredMixin, TemplateView):
+    template_name = "backoffice/formulaire.html"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["titre"] = "Changer mon mot de passe"
+        contexte["form"] = styliser(kwargs.get("form") or forms.MonMotDePasseForm(self.request.user))
+        contexte["url_retour"] = reverse("backoffice:mon_profil")
+        return contexte
+
+    def post(self, request):
+        form = forms.MonMotDePasseForm(request.user, request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+        request.user.set_password(form.cleaned_data["mot_de_passe"])
+        request.user.save()
+        # Sans ça, Django considère la session courante invalide dès que le
+        # hash du mot de passe change, et déconnecte la personne qui vient
+        # elle-même de le changer.
+        update_session_auth_hash(request, request.user)
+        messages.success(request, "Mot de passe mis à jour.")
+        return redirect("backoffice:mon_profil")
 
 
 class TableauDeBordView(AccesBackoffice, TemplateView):
