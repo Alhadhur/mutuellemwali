@@ -230,10 +230,17 @@ class LigneFacture(models.Model):
 
     @property
     def montant_reclame_attendu(self):
-        """Ce que le prestataire devrait réclamer, au taux de sa convention."""
+        """Ce que le prestataire devrait réclamer, au taux applicable.
+
+        Le taux suit celui de la prescription rapprochée (tarif détaillé pour
+        sa nature de soin s'il existe, sinon taux général du prestataire —
+        voir Prestataire.taux_pour). Sans prescription rapprochée, impossible
+        de savoir quelle nature est en jeu : repli sur le taux général.
+        """
         from decimal import ROUND_HALF_UP, Decimal
 
-        taux = self.facture.prestataire.taux_prise_en_charge
+        nature = self.prescription.nature if self.prescription_id else None
+        taux = self.facture.prestataire.taux_pour(nature)
         montant = Decimal(self.montant_soin) * taux / Decimal("100")
         return int(montant.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 

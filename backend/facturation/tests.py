@@ -10,8 +10,9 @@ from django.test import TestCase
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent
 from facturation.models import Facture, LigneFacture, StatutFacture, StatutLigne
+from parametrage.models import NatureSoin
 from prescriptions.models import Prescription, StatutPrescription
-from prestataires.models import Prestataire, TypePrestataire
+from prestataires.models import Prestataire, TarifPrestataire, TypePrestataire
 
 
 def fichier_csv(contenu):
@@ -188,6 +189,44 @@ class RapprochementTest(BaseFacturation):
         # 80 % de 12000 et de 8000 : le prestataire réclame 16000 au total.
         self.assertEqual(facture.montant_total_lignes, 16000)
         self.assertEqual(facture.ecart_total, 9000)
+
+    def test_le_tarif_par_nature_de_soin_prime_sur_le_taux_general(self):
+        """Une fois ce prestataire tarifé en détail pour une nature donnée, le
+        rapprochement doit comparer à ce taux-là, pas au taux général — sinon
+        une ligne correctement facturée au tarif détaillé ressortirait à tort
+        comme un taux mal appliqué (voir Prestataire.taux_pour)."""
+        chirurgie = NatureSoin.objects.get(libelle="Chirurgie")
+        TarifPrestataire.objects.create(
+            prestataire=self.prestataire, nature_soin=chirurgie, taux_prise_en_charge=60
+        )
+        Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            nature=chirurgie,
+            numero_ordonnance="ORD-CHIR",
+            montant_total=100000,
+            date_emission=date(2026, 3, 5),
+            justificatif="x.jpg",
+        )
+        facture = self.facture(total=60000)
+        # Le prestataire réclame exactement les 60 % de son tarif détaillé
+        # « Chirurgie » ; son taux général (80 %) attendrait 80000.
+        ligne = LigneFacture.objects.create(
+            facture=facture,
+            date_soin=date(2026, 3, 5),
+            matricule="A0001",
+            nom_beneficiaire="Fatima Zahra",
+            nature="Chirurgie",
+            montant_soin=100000,
+            montant_reclame=60000,
+        )
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
+        self.assertEqual(ligne.montant_reclame_attendu, 60000)
+        self.assertEqual(ligne.ecart_taux, 0)
 
 
 class ValidationFactureTest(BaseFacturation):
