@@ -22,6 +22,8 @@ urlpatterns = [
 
     path("ayants-droit/", views.AyantDroitListe.as_view(), name="ayants_droit"),
     path("ayants-droit/nouveau/", views.AyantDroitCreer.as_view(), name="ayant_droit_creer"),
+    path("ayants-droit/export/", views.AyantDroitExport.as_view(), name="ayant_droit_export"),
+    path("ayants-droit/importer/", views.AyantDroitImport.as_view(), name="ayant_droit_import"),
     path("ayants-droit/<int:pk>/", views.AyantDroitModifier.as_view(), name="ayant_droit_modifier"),
     path("ayants-droit/<int:pk>/<str:decision>/", views.AyantDroitVerifier.as_view(), name="ayant_droit_verifier"),
 
@@ -46,6 +48,8 @@ urlpatterns = [
 
     path("utilisateurs/", views.UtilisateurListe.as_view(), name="utilisateurs"),
     path("utilisateurs/nouveau/", views.UtilisateurCreer.as_view(), name="utilisateur_creer"),
+    path("utilisateurs/export/", views.UtilisateurExport.as_view(), name="utilisateur_export"),
+    path("utilisateurs/importer/", views.UtilisateurImport.as_view(), name="utilisateur_import"),
     path("utilisateurs/<int:pk>/", views.UtilisateurModifier.as_view(), name="utilisateur_modifier"),
     path("utilisateurs/<int:pk>/mot-de-passe/", views.UtilisateurMotDePasse.as_view(), name="utilisateur_mot_de_passe"),
 

@@ -16,13 +16,13 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from accounts.models import Role, Utilisateur
-from beneficiaires.models import Agent, AyantDroit, StatutVerification
+from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
 from facturation.models import Facture, StatutFacture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire
 
-from . import exports, forms, tableaux
+from . import exports, forms, imports, tableaux
 
 
 def valeur(objet, source):
@@ -59,6 +59,8 @@ class ListeBase(AccesBackoffice, ListView):
     colonnes = ()
     url_creation = ""
     url_detail = ""
+    url_export = ""
+    url_import = ""
     libelle_creation = ""
     champs_recherche = ()
 
@@ -85,6 +87,8 @@ class ListeBase(AccesBackoffice, ListView):
             for objet in contexte["object_list"]
         ]
         contexte["url_creation"] = reverse(self.url_creation) if self.url_creation else ""
+        contexte["url_export"] = reverse(self.url_export) if self.url_export else ""
+        contexte["url_import"] = reverse(self.url_import) if self.url_import else ""
         contexte["libelle_creation"] = self.libelle_creation
         contexte["recherche"] = self.request.GET.get("recherche", "")
         contexte["avec_recherche"] = bool(self.champs_recherche)
@@ -126,6 +130,67 @@ class FormulaireBase(AccesModification):
         reponse = super().form_valid(form)
         messages.success(self.request, f"{self.titre} : enregistrement effectué.")
         return reponse
+
+
+class ImportCSVBase(AccesModification, TemplateView):
+    """Import CSV en deux temps : aperçu (transaction annulée), puis
+    confirmation (transaction conservée) à partir du même fichier, gardé en
+    session entre les deux requêtes.
+
+    Une sous-classe déclare `colonnes_attendues` et `importer_ligne`, qui
+    retourne `(objet, cree)` ou lève `imports.LigneInvalide` — même contrat
+    que les commandes manage.py `importer_*`.
+    """
+
+    template_name = "backoffice/import.html"
+    titre = ""
+    aide = ""
+    colonnes_attendues = frozenset()
+    url_liste = ""
+    cle_session = ""
+
+    def importer_ligne(self, ligne):
+        raise NotImplementedError
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["titre"] = self.titre
+        contexte["aide"] = self.aide
+        contexte["url_retour"] = reverse(self.url_liste)
+        contexte.setdefault("form", styliser(forms.ImportCSVForm()))
+        return contexte
+
+    def post(self, request, *args, **kwargs):
+        if request.POST.get("confirmer"):
+            return self._confirmer(request)
+        return self._analyser(request)
+
+    def _analyser(self, request):
+        form = styliser(forms.ImportCSVForm(request.POST, request.FILES))
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+
+        contenu = request.FILES["fichier"].read().decode("utf-8-sig")
+        rapport = imports.executer(contenu, self.colonnes_attendues, self.importer_ligne, ecrire=False)
+        if not rapport["erreurs"]:
+            request.session[self.cle_session] = contenu
+        return self.render_to_response(self.get_context_data(rapport=rapport))
+
+    def _confirmer(self, request):
+        contenu = request.session.pop(self.cle_session, None)
+        if not contenu:
+            messages.error(request, "Le fichier analysé a expiré : réimportez-le.")
+            return redirect(self.url_liste)
+
+        rapport = imports.executer(contenu, self.colonnes_attendues, self.importer_ligne, ecrire=True)
+        if rapport["erreurs"]:
+            messages.error(request, "Le fichier a changé entre l'analyse et la confirmation : réimportez-le.")
+            return redirect(self.url_liste)
+
+        messages.success(
+            request, f"{self.titre} : {rapport['crees']} création(s), {rapport['maj']} mise(s) à jour."
+        )
+        return redirect(self.url_liste)
 
 
 class TableauDeBordView(AccesBackoffice, TemplateView):
@@ -205,6 +270,8 @@ class AyantDroitListe(ListeBase):
     url_creation = "backoffice:ayant_droit_creer"
     libelle_creation = "Nouvel ayant droit"
     url_detail = "backoffice:ayant_droit_modifier"
+    url_export = "backoffice:ayant_droit_export"
+    url_import = "backoffice:ayant_droit_import"
     champs_recherche = ("nom", "prenom", "agent__utilisateur__matricule")
     colonnes = (
         ("Nom", lambda o: f"{o.prenom} {o.nom}"),
@@ -237,6 +304,86 @@ class AyantDroitModifier(FormulaireBase, UpdateView):
         contexte = super().get_context_data(**kwargs)
         contexte["ayant_droit"] = self.object
         return contexte
+
+
+class AyantDroitExport(AccesBackoffice, View):
+    def get(self, request):
+        colonnes = (
+            ("Agent", lambda o: o.agent.matricule),
+            ("Nom", "nom"),
+            ("Prénom", "prenom"),
+            ("Date de naissance", "date_naissance"),
+            ("Lien de parenté", "get_lien_parente_display"),
+            ("Type de justificatif", "get_type_justificatif_display"),
+            ("Justificatif", lambda o: o.justificatif.name.rsplit("/", 1)[-1] if o.justificatif else ""),
+            ("Date de validité", "date_validite"),
+            ("Statut de vérification", "get_statut_verification_display"),
+        )
+        return exports.reponse_csv(
+            exports.nom_de_fichier("ayants-droit"),
+            colonnes,
+            AyantDroit.objects.select_related("agent__utilisateur"),
+        )
+
+
+LIENS_IMPORT = {valeur.lower(): valeur for valeur in LienParente.values}
+LIENS_IMPORT.update({libelle.lower(): valeur for valeur, libelle in LienParente.choices})
+
+JUSTIFICATIFS_IMPORT = {valeur.lower(): valeur for valeur in TypeJustificatif.values}
+JUSTIFICATIFS_IMPORT.update({libelle.lower(): valeur for valeur, libelle in TypeJustificatif.choices})
+
+
+class AyantDroitImport(ImportCSVBase):
+    titre = "Importer des ayants droit"
+    aide = (
+        "Colonnes obligatoires : agent (matricule), nom, prenom, lien_parente "
+        "(conjoint/enfant/autre). Facultatives : date_naissance (JJ/MM/AAAA), "
+        "type_justificatif (acte_naissance/acte_mariage/certificat_scolarite/autre — "
+        "« autre » par défaut), date_validite. Une ligne dont l'agent, le nom et le "
+        "prénom correspondent déjà à un ayant droit le met à jour au lieu d'en créer "
+        "un doublon. Le fichier du justificatif n'est jamais importé : chaque fiche "
+        "créée doit le recevoir séparément, depuis la fiche, avant vérification."
+    )
+    colonnes_attendues = frozenset({"agent", "nom", "prenom", "lien_parente"})
+    url_liste = "backoffice:ayants_droit"
+    cle_session = "import_ayants_droit_csv"
+
+    def importer_ligne(self, ligne):
+        matricule = ligne.get("agent", "").strip().upper()
+        agent = Agent.objects.filter(utilisateur__matricule=matricule).first()
+        if not agent:
+            raise imports.LigneInvalide(f"agent « {matricule} » introuvable")
+
+        nom = ligne.get("nom", "")
+        prenom = ligne.get("prenom", "")
+        if not nom or not prenom:
+            raise imports.LigneInvalide("nom ou prénom vide")
+
+        lien_brut = ligne.get("lien_parente", "").lower()
+        lien = LIENS_IMPORT.get(lien_brut)
+        if not lien:
+            raise imports.LigneInvalide(f"lien de parenté « {ligne.get('lien_parente')} » inconnu")
+
+        type_brut = ligne.get("type_justificatif", "").lower()
+        if type_brut and type_brut not in JUSTIFICATIFS_IMPORT:
+            raise imports.LigneInvalide(f"type de justificatif « {ligne.get('type_justificatif')} » inconnu")
+        type_justificatif = JUSTIFICATIFS_IMPORT.get(type_brut, TypeJustificatif.AUTRE)
+
+        champs = {
+            "date_naissance": imports.date_ou_erreur(ligne.get("date_naissance", ""), "date_naissance"),
+            "lien_parente": lien,
+            "type_justificatif": type_justificatif,
+            "date_validite": imports.date_ou_erreur(ligne.get("date_validite", ""), "date_validite"),
+        }
+
+        existant = AyantDroit.objects.filter(agent=agent, nom__iexact=nom, prenom__iexact=prenom).first()
+        if existant:
+            for attribut, valeur in champs.items():
+                setattr(existant, attribut, valeur)
+            existant.save()
+            return existant, False
+
+        return AyantDroit.objects.create(agent=agent, nom=nom, prenom=prenom, **champs), True
 
 
 class AyantDroitVerifier(AccesModification, View):
@@ -548,6 +695,8 @@ class UtilisateurListe(ListeBase):
     url_creation = "backoffice:utilisateur_creer"
     libelle_creation = "Nouveau compte"
     url_detail = "backoffice:utilisateur_modifier"
+    url_export = "backoffice:utilisateur_export"
+    url_import = "backoffice:utilisateur_import"
     champs_recherche = ("matricule", "nom", "prenom", "email", "telephone", "region")
     colonnes = (
         ("Matricule", "matricule"),
@@ -576,6 +725,86 @@ class UtilisateurModifier(FormulaireBase, UpdateView):
         contexte = super().get_context_data(**kwargs)
         contexte["utilisateur_edite"] = self.object
         return contexte
+
+
+class UtilisateurExport(AccesBackoffice, View):
+    def get(self, request):
+        colonnes = (
+            ("Matricule", "matricule"),
+            ("Nom", "nom"),
+            ("Prénom", "prenom"),
+            ("Email", "email"),
+            ("Téléphone", "telephone"),
+            ("Rôle", "get_role_display"),
+            ("Région", "region"),
+            ("Actif", "is_active"),
+        )
+        return exports.reponse_csv(exports.nom_de_fichier("utilisateurs"), colonnes, Utilisateur.objects.all())
+
+
+ROLES_IMPORT = {valeur.lower(): valeur for valeur in Role.values}
+ROLES_IMPORT.update({libelle.lower(): valeur for valeur, libelle in Role.choices})
+
+
+def _actif_import(brut):
+    if not brut:
+        return True
+    return brut.strip().lower() in ("oui", "vrai", "true", "1", "actif")
+
+
+class UtilisateurImport(ImportCSVBase):
+    titre = "Importer des utilisateurs"
+    aide = (
+        "Colonnes obligatoires : matricule, nom, prenom. Facultatives : email, "
+        "telephone, role (agent/rh/direction/prestataire — agent par défaut), "
+        "region, actif (oui/non — actif par défaut). Une ligne dont le matricule "
+        "correspond déjà à un compte le met à jour au lieu d'en créer un doublon. "
+        "Le mot de passe n'est jamais importé : chaque compte créé doit en recevoir "
+        "un depuis sa fiche (« Définir un nouveau mot de passe ») avant de pouvoir "
+        "se connecter."
+    )
+    colonnes_attendues = frozenset({"matricule", "nom", "prenom"})
+    url_liste = "backoffice:utilisateurs"
+    cle_session = "import_utilisateurs_csv"
+
+    def importer_ligne(self, ligne):
+        matricule = ligne.get("matricule", "").strip().upper()
+        nom = ligne.get("nom", "")
+        prenom = ligne.get("prenom", "")
+        if not matricule:
+            raise imports.LigneInvalide("matricule vide")
+        if not nom or not prenom:
+            raise imports.LigneInvalide("nom ou prénom vide")
+
+        role_brut = ligne.get("role", "").lower()
+        if role_brut and role_brut not in ROLES_IMPORT:
+            raise imports.LigneInvalide(f"rôle « {ligne.get('role')} » inconnu")
+        role = ROLES_IMPORT.get(role_brut, Role.AGENT)
+
+        champs = {
+            "nom": nom,
+            "prenom": prenom,
+            "email": ligne.get("email", ""),
+            "telephone": ligne.get("telephone", ""),
+            "role": role,
+            "region": ligne.get("region", ""),
+            "is_active": _actif_import(ligne.get("actif", "")),
+        }
+
+        existant = Utilisateur.objects.filter(matricule=matricule).first()
+        if existant:
+            for attribut, valeur in champs.items():
+                setattr(existant, attribut, valeur)
+            existant.save()
+            return existant, False
+
+        nouvel_utilisateur = Utilisateur(matricule=matricule, **champs)
+        # Un compte importé n'a jamais de mot de passe utilisable : c'est au
+        # service mutuelle de lui en attribuer un, depuis la fiche, pas au
+        # fichier d'origine de le transporter en clair.
+        nouvel_utilisateur.set_unusable_password()
+        nouvel_utilisateur.save()
+        return nouvel_utilisateur, True
 
 
 class UtilisateurMotDePasse(AccesModification, TemplateView):

@@ -62,6 +62,10 @@ class MotDePasseForm(forms.Form):
         return donnees
 
 
+class ImportCSVForm(forms.Form):
+    fichier = forms.FileField(label="Fichier CSV")
+
+
 class AgentForm(forms.ModelForm):
     """Le quota n'est pas saisi : il découle du barème appliqué à la
     composition familiale."""

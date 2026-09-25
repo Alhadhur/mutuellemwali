@@ -16,9 +16,13 @@
     {% endif %}
     {% block filtres %}{% endblock %}
   </div>
-  {% if url_creation and peut_modifier %}
-    <a class="btn" href="{{ url_creation }}">{{ libelle_creation }}</a>
-  {% endif %}
+  <div style="display:flex;gap:8px;">
+    {% if url_export %}<a class="btn btn-secondaire" href="{{ url_export }}">Exporter</a>{% endif %}
+    {% if url_import and peut_modifier %}<a class="btn btn-secondaire" href="{{ url_import }}">Importer</a>{% endif %}
+    {% if url_creation and peut_modifier %}
+      <a class="btn" href="{{ url_creation }}">{{ libelle_creation }}</a>
+    {% endif %}
+  </div>
 </div>
 
 <section>
