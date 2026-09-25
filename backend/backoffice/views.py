@@ -255,6 +255,7 @@ class TableauDeBordView(AccesBackoffice, TemplateView):
 
     def get_context_data(self, **kwargs):
         from anomalies import services
+        from rapports import services as rapports_services
 
         contexte = super().get_context_data(**kwargs)
         contexte["indicateurs"] = services.indicateurs_globaux()
@@ -263,6 +264,11 @@ class TableauDeBordView(AccesBackoffice, TemplateView):
         contexte["prestataires_anormaux"] = services.prestataires_volume_anormal()
         contexte["agents_proche_quota"] = services.agents_proche_quota()
         contexte["justificatifs_expires"] = services.ayants_droit_justificatif_expire()
+
+        tendance = rapports_services.evolution_recente(6)
+        contexte["tendance_mensuelle"] = tendance
+        contexte["mois_courant"] = tendance[-1]
+        contexte["tendance_max"] = max((mois["montant"] for mois in tendance), default=0) or 1
         return contexte
 
 

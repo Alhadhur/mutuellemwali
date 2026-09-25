@@ -21,6 +21,31 @@
   </div>
 
   <section>
+    <h2>💰 Montant des prescriptions saisies — tendance sur 6 mois</h2>
+    <div style="padding:18px;">
+      <div class="kpis" style="margin-bottom:18px;">
+        <div class="kpi">
+          <div class="value">{{ mois_courant.montant|floatformat:0|intcomma }} KMF</div>
+          <div class="label">Saisi ce mois-ci ({{ mois_courant.nombre }} acte{{ mois_courant.nombre|pluralize }})</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:14px;height:150px;">
+        {% for m in tendance_mensuelle %}
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">{{ m.montant|floatformat:0|intcomma }}</div>
+            <div style="width:100%;max-width:46px;background:var(--accent);border-radius:4px 4px 0 0;
+                        height:{% widthratio m.montant tendance_max 100 %}%;min-height:2px;"></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;">{{ m.mois }}</div>
+          </div>
+        {% endfor %}
+      </div>
+      <div style="margin-top:16px;">
+        <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:rapports' %}">Voir le détail dans Rapports d'activité</a>
+      </div>
+    </div>
+  </section>
+
+  <section>
     <h2>⚠️ Prescriptions en contrôle — nécessitent une décision RH / Direction</h2>
     {% if en_controle %}
     <table>

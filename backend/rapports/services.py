@@ -318,6 +318,36 @@ def evolution_mensuelle(debut, fin):
     ]
 
 
+def evolution_recente(nombre_mois=6):
+    """Les `nombre_mois` derniers mois, mois courant inclus, même sans aucun
+    acte enregistré — contrairement à `evolution_mensuelle`, qui ne renvoie
+    que les mois où une prescription existe. Pensé pour un raccourci de
+    tableau de bord : un mois sans activité doit apparaître à zéro, pas
+    disparaître du graphique."""
+    aujourdhui = timezone.localdate()
+
+    cles = []
+    reference = aujourdhui.replace(day=1)
+    for _ in range(nombre_mois):
+        cles.append((reference.year, reference.month))
+        reference = (reference - timedelta(days=1)).replace(day=1)
+    cles.reverse()
+
+    mois_par_cle = {
+        cle: {"mois": f"{cle[1]:02d}/{cle[0]}", "nombre": 0, "montant": 0} for cle in cles
+    }
+
+    debut = date(cles[0][0], cles[0][1], 1)
+    for ligne in evolution_mensuelle(debut, aujourdhui):
+        mois_txt, annee_txt = ligne["mois"].split("/")
+        cle = (int(annee_txt), int(mois_txt))
+        if cle in mois_par_cle:
+            mois_par_cle[cle]["nombre"] = ligne["nombre"]
+            mois_par_cle[cle]["montant"] = ligne["montant"]
+
+    return [mois_par_cle[cle] for cle in cles]
+
+
 def periode_par_defaut():
     """Les douze derniers mois : une activité se lit sur une saison complète,
     pas sur la fenêtre courte utilisée pour la détection d'anomalies."""
