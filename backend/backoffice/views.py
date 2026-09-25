@@ -9,7 +9,7 @@ from django import forms as django_forms
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.db.models import Q
+from django.db.models import ProtectedError, Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -20,7 +20,7 @@ from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
 from facturation.models import Facture, StatutFacture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
-from prescriptions.models import Prescription, StatutPrescription
+from prescriptions.models import STATUTS_MANUELS, Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TarifPrestataire
 
 from . import exports, forms, imports, tableaux
@@ -248,6 +248,37 @@ class MonMotDePasse(LoginRequiredMixin, TemplateView):
         update_session_auth_hash(request, request.user)
         messages.success(request, "Mot de passe mis à jour.")
         return redirect("backoffice:mon_profil")
+
+
+class SupprimerBase(AccesModification, View):
+    """Suppression définitive d'un référentiel (prestataire, nature de soin,
+    tranche de barème…).
+
+    Volontairement pas de vérification préalable ici : les FK `on_delete=
+    PROTECT` des modèles qui utilisent réellement ces référentiels
+    (Prescription, Facture…) suffisent à empêcher une suppression qui
+    casserait l'historique, et le message ci-dessous l'explique plutôt que de
+    laisser remonter une 500.
+    """
+
+    model = None
+    url_liste = ""
+    libelle = ""
+
+    def post(self, request, pk):
+        objet = get_object_or_404(self.model, pk=pk)
+        description = str(objet)
+        try:
+            objet.delete()
+        except ProtectedError:
+            messages.error(
+                request,
+                f"{self.libelle} « {description} » ne peut pas être supprimé : "
+                "des prescriptions ou factures existantes s'y réfèrent encore.",
+            )
+        else:
+            messages.success(request, f"{self.libelle} « {description} » supprimé.")
+        return redirect(self.url_liste)
 
 
 class TableauDeBordView(AccesBackoffice, TemplateView):
@@ -587,7 +618,29 @@ class PrescriptionDetail(AccesBackoffice, DetailView):
         contexte["doublons"] = self.object.detecter_doublons().select_related("prestataire")
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
         contexte["statuts"] = StatutPrescription.choices
+        contexte["peut_supprimer"] = self.object.statut not in STATUTS_MANUELS
         return contexte
+
+
+class PrescriptionSupprimer(AccesModification, View):
+    """Suppression réservée aux prescriptions pas encore décidées : une fois
+    validée ou rejetée, la décision doit rester tracée, quitte à corriger par
+    un nouveau changement de statut plutôt que par un effacement."""
+
+    def post(self, request, pk):
+        prescription = get_object_or_404(Prescription, pk=pk)
+        if prescription.statut in STATUTS_MANUELS:
+            messages.error(
+                request,
+                "Impossible de supprimer une prescription déjà validée ou rejetée : "
+                "cette décision doit rester tracée.",
+            )
+            return redirect("backoffice:prescription_detail", pk=pk)
+
+        numero = prescription.numero_ordonnance
+        prescription.delete()
+        messages.success(request, f"Prescription {numero} supprimée.")
+        return redirect("backoffice:prescriptions")
 
 
 class PrescriptionChangerStatut(AccesModification, View):
@@ -743,7 +796,14 @@ class PrestataireModifier(FormulaireBase, UpdateView):
         contexte["prestataire_tarifs"] = self.object.tarifs.select_related("nature_soin").all()
         contexte["form_tarif"] = styliser(forms.TarifPrestataireForm())
         contexte["url_tarif_ajouter"] = reverse("backoffice:prestataire_tarif_ajouter", args=[self.object.pk])
+        contexte["url_supprimer"] = reverse("backoffice:prestataire_supprimer", args=[self.object.pk])
         return contexte
+
+
+class PrestataireSupprimer(SupprimerBase):
+    model = Prestataire
+    url_liste = "backoffice:prestataires"
+    libelle = "Prestataire"
 
 
 class PrestataireTarifAjouter(AccesModification, View):
@@ -974,6 +1034,17 @@ class BaremeModifier(FormulaireBase, UpdateView):
     titre = "Modifier la tranche"
     success_url = reverse_lazy("backoffice:bareme")
 
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["url_supprimer"] = reverse("backoffice:bareme_supprimer", args=[self.object.pk])
+        return contexte
+
+
+class BaremeSupprimer(SupprimerBase):
+    model = TrancheQuota
+    url_liste = "backoffice:bareme"
+    libelle = "Tranche de barème"
+
 
 # --- Anomalies ------------------------------------------------------------
 
@@ -1190,3 +1261,14 @@ class NatureSoinModifier(FormulaireBase, UpdateView):
     form_class = forms.NatureSoinForm
     titre = "Modifier la nature de soin"
     success_url = reverse_lazy("backoffice:natures")
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["url_supprimer"] = reverse("backoffice:nature_supprimer", args=[self.object.pk])
+        return contexte
+
+
+class NatureSoinSupprimer(SupprimerBase):
+    model = NatureSoin
+    url_liste = "backoffice:natures"
+    libelle = "Nature de soin"

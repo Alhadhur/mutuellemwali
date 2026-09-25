@@ -36,6 +36,7 @@ urlpatterns = [
     path("recherche/agents/<int:pk>/ayants-droit/", views.AyantsDroitDeLAgent.as_view(), name="recherche_ayants_droit"),
     path("prescriptions/<int:pk>/", views.PrescriptionDetail.as_view(), name="prescription_detail"),
     path("prescriptions/<int:pk>/statut/", views.PrescriptionChangerStatut.as_view(), name="prescription_statut"),
+    path("prescriptions/<int:pk>/supprimer/", views.PrescriptionSupprimer.as_view(), name="prescription_supprimer"),
 
     path("factures/", views.FactureListe.as_view(), name="factures"),
     path("factures/nouvelle/", views.FactureCreer.as_view(), name="facture_creer"),
@@ -48,6 +49,7 @@ urlpatterns = [
     path("prestataires/nouveau/", views.PrestataireCreer.as_view(), name="prestataire_creer"),
     path("prestataires/<int:pk>/", views.PrestataireModifier.as_view(), name="prestataire_modifier"),
     path("prestataires/<int:pk>/statut/", views.PrestataireBasculerStatut.as_view(), name="prestataire_statut"),
+    path("prestataires/<int:pk>/supprimer/", views.PrestataireSupprimer.as_view(), name="prestataire_supprimer"),
     path("prestataires/<int:pk>/tarifs/", views.PrestataireTarifAjouter.as_view(), name="prestataire_tarif_ajouter"),
     path(
         "prestataires/<int:pk>/tarifs/<int:tarif_pk>/supprimer/",
@@ -67,8 +69,10 @@ urlpatterns = [
     path("bareme/", views.BaremeListe.as_view(), name="bareme"),
     path("bareme/nouvelle/", views.BaremeCreer.as_view(), name="bareme_creer"),
     path("bareme/<int:pk>/", views.BaremeModifier.as_view(), name="bareme_modifier"),
+    path("bareme/<int:pk>/supprimer/", views.BaremeSupprimer.as_view(), name="bareme_supprimer"),
 
     path("natures-de-soin/", views.NatureSoinListe.as_view(), name="natures"),
     path("natures-de-soin/nouvelle/", views.NatureSoinCreer.as_view(), name="nature_creer"),
     path("natures-de-soin/<int:pk>/", views.NatureSoinModifier.as_view(), name="nature_modifier"),
+    path("natures-de-soin/<int:pk>/supprimer/", views.NatureSoinSupprimer.as_view(), name="nature_supprimer"),
 ]

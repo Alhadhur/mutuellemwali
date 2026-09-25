@@ -117,4 +117,20 @@
     </div>
   </section>
 {% endif %}
+
+{% if url_supprimer %}
+  <section>
+    <h2>Zone de suppression</h2>
+    <div style="padding:18px;">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Définitif. Refusé automatiquement si des prescriptions ou factures existantes s'y réfèrent encore.
+      </p>
+      <form method="post" action="{{ url_supprimer }}"
+            onsubmit="return confirm('Supprimer définitivement « {{ object|escapejs }} » ? Cette action est irréversible.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Supprimer</button>
+      </form>
+    </div>
+  </section>
+{% endif %}
 {% endblock %}

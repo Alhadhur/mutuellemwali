@@ -79,6 +79,22 @@
   </section>
 {% endif %}
 
+{% if peut_modifier and peut_supprimer %}
+  <section>
+    <h2>Zone de suppression</h2>
+    <div style="padding:18px;">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Réservé aux prescriptions pas encore décidées : une fois validée ou rejetée, la trace doit rester.
+      </p>
+      <form method="post" action="{% url 'backoffice:prescription_supprimer' prescription.pk %}"
+            onsubmit="return confirm('Supprimer définitivement la prescription {{ prescription.numero_ordonnance|escapejs }} ? Cette action est irréversible.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Supprimer</button>
+      </form>
+    </div>
+  </section>
+{% endif %}
+
 <section>
   <h2>Historique</h2>
   {% if historique %}
