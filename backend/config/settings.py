@@ -125,7 +125,9 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "fr-fr"
-TIME_ZONE = "Africa/Casablanca"
+# Fuseau de la mutuelle. Les dates et heures sont stockées en UTC (USE_TZ)
+# et converties à l'affichage : le serveur peut donc être hébergé ailleurs.
+TIME_ZONE = "Indian/Comoro"
 USE_I18N = True
 USE_TZ = True
 

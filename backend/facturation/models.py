@@ -14,6 +14,7 @@ from datetime import date
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire
@@ -47,7 +48,7 @@ class Facture(models.Model):
     mois = models.PositiveSmallIntegerField(choices=MOIS, verbose_name="Mois facturé")
     annee = models.PositiveSmallIntegerField(verbose_name="Année")
 
-    date_reception = models.DateField(default=date.today)
+    date_reception = models.DateField(default=timezone.localdate)
     montant_total_declare = models.PositiveIntegerField(
         verbose_name="Total réclamé à la mutuelle (KMF)",
         help_text="Total figurant sur la facture ; comparé à la somme réclamée sur les lignes.",
@@ -172,8 +173,6 @@ class Facture(models.Model):
         Les lignes en écart ne valident rien : elles restent à arbitrer une
         par une.
         """
-        from django.utils import timezone
-
         validees = 0
         for ligne in self.lignes.filter(statut=StatutLigne.CONCORDANTE).select_related("prescription"):
             prescription = ligne.prescription

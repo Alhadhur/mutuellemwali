@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from statistics import mean, pstdev
 
 from django.db.models import Count, Sum
+from django.utils import timezone
 
 from beneficiaires.models import Agent, AyantDroit
 from facturation.models import LigneFacture, StatutLigne
@@ -31,7 +32,7 @@ STATUTS_LIGNE_ANORMAUX = (
 
 def periode_par_defaut():
     """Fenêtre d'analyse paramétrée, bornée à aujourd'hui."""
-    fin = date.today()
+    fin = timezone.localdate()
     debut = fin - timedelta(days=Parametrage.charger().fenetre_analyse_jours)
     return debut, fin
 
@@ -211,7 +212,7 @@ def indicateurs_globaux():
         "nb_agents_actifs": Agent.objects.filter(actif=True).count(),
         "nb_prescriptions_en_controle": Prescription.objects.filter(statut=StatutPrescription.EN_CONTROLE).count(),
         "montant_rembourse_total_annee": Prescription.objects.filter(
-            statut=StatutPrescription.VALIDEE, date_emission__year=date.today().year
+            statut=StatutPrescription.VALIDEE, date_emission__year=timezone.localdate().year
         ).aggregate(total=Sum("montant_rembourse"))["total"]
         or 0,
     }

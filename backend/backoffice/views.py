@@ -4,7 +4,6 @@ en remplacement des pages génériques de l'admin Django.
 Les listes partagent un même template piloté par `colonnes` : chaque entrée est
 soit un nom d'attribut/méthode du modèle, soit un appelable recevant l'objet.
 """
-from datetime import date
 
 from django import forms as django_forms
 from django.contrib import messages
@@ -13,6 +12,7 @@ from django.db.models import Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from accounts.models import Role, Utilisateur
@@ -243,8 +243,6 @@ class AyantDroitVerifier(AccesModification, View):
     """Valide ou rejette un ayant droit en traçant l'auteur et la date."""
 
     def post(self, request, pk, decision):
-        from django.utils import timezone
-
         ayant_droit = get_object_or_404(AyantDroit, pk=pk)
         statuts = {"valider": StatutVerification.VALIDE, "rejeter": StatutVerification.REJETE}
         if decision not in statuts:
@@ -712,7 +710,7 @@ class AnomaliesExport(AccesBackoffice, View):
         entete = (
             ["Mutuelle santé — export des anomalies"],
             ["Période analysée", f"du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"],
-            ["Édité le", f"{date.today():%d/%m/%Y}"],
+            ["Édité le", f"{timezone.localdate():%d/%m/%Y}"],
             ["Édité par", request.user.get_full_name()],
         )
 
@@ -803,7 +801,7 @@ class RapportsExport(AccesBackoffice, View):
         entete = (
             ["Mutuelle santé — rapport d'activité"],
             ["Période", f"du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"],
-            ["Édité le", f"{date.today():%d/%m/%Y}"],
+            ["Édité le", f"{timezone.localdate():%d/%m/%Y}"],
             ["Édité par", request.user.get_full_name()],
             [],
             ["Actes enregistrés", synthese["nombre_actes"]],

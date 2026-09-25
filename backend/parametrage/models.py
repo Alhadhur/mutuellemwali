@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.db import models
+from django.utils import timezone
 
 
 class Parametrage(models.Model):
@@ -112,7 +113,7 @@ class Parametrage(models.Model):
         qui ne divise pas 12 laisse donc un dernier cycle plus court en fin
         d'année, plutôt qu'un décalage qui dériverait d'année en année.
         """
-        reference = reference or date.today()
+        reference = reference or timezone.localdate()
         duree = max(1, self.duree_cycle_mois)
 
         mois_debut = ((reference.month - 1) // duree) * duree + 1

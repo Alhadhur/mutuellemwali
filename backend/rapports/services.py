@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import date, timedelta
 
 from django.db.models import Count, Sum
+from django.utils import timezone
 
 from beneficiaires.models import Agent
 from prescriptions.models import HistoriqueStatut, Prescription, StatutPrescription
@@ -320,5 +321,5 @@ def evolution_mensuelle(debut, fin):
 def periode_par_defaut():
     """Les douze derniers mois : une activité se lit sur une saison complète,
     pas sur la fenêtre courte utilisée pour la détection d'anomalies."""
-    fin = date.today()
+    fin = timezone.localdate()
     return fin - timedelta(days=365), fin

@@ -2,6 +2,7 @@ from datetime import date
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from parametrage.models import Parametrage, TrancheQuota
 
@@ -190,13 +191,13 @@ class AyantDroit(models.Model):
 
     @property
     def est_expire(self):
-        return bool(self.date_validite) and self.date_validite < date.today()
+        return bool(self.date_validite) and self.date_validite < timezone.localdate()
 
     @property
     def age(self):
         if not self.date_naissance:
             return None
-        aujourdhui = date.today()
+        aujourdhui = timezone.localdate()
         anniversaire_passe = (aujourdhui.month, aujourdhui.day) >= (
             self.date_naissance.month,
             self.date_naissance.day,

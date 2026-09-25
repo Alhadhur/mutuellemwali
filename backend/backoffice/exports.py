@@ -13,6 +13,7 @@ import csv
 from datetime import date
 
 from django.http import HttpResponse
+from django.utils import timezone
 
 SEPARATEUR = ";"
 BOM = "﻿"
@@ -74,7 +75,7 @@ def nom_de_fichier(prefixe, debut=None, fin=None):
     if debut and fin:
         morceaux.append(f"{debut:%Y%m%d}-{fin:%Y%m%d}")
     else:
-        morceaux.append(f"{date.today():%Y%m%d}")
+        morceaux.append(f"{timezone.localdate():%Y%m%d}")
     return "-".join(morceaux) + ".csv"
 
 
