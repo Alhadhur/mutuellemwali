@@ -10,9 +10,7 @@ databases:
   - name: mutuelle-sante-db
     databaseName: mutuelle_sante
     user: mutuelle_app
-    # `free` est supprimée au bout de 30 jours : passer à `basic-256mb` ou
-    # au-delà avant toute mise en service réelle.
-    plan: free
+    plan: basic-256mb
     region: frankfurt
 
 services:
