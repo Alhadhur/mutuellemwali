@@ -200,6 +200,9 @@ class ApiService {
     return (data['results'] as List).map((e) => Prescription.fromJson(e)).toList();
   }
 
+  /// [justificatif] est facultatif en phase de démarrage : les vérifications
+  /// se font alors manuellement, sur pièce papier, en attendant l'usage
+  /// officiel de l'application mobile.
   Future<Prescription> soumettrePrescription({
     required int prestataireId,
     int? ayantDroitId,
@@ -207,7 +210,7 @@ class ApiService {
     required String numeroOrdonnance,
     required int montantTotal,
     required DateTime dateEmission,
-    required File justificatif,
+    File? justificatif,
   }) async {
     await _loadTokens();
 
@@ -221,7 +224,9 @@ class ApiService {
       request.fields['montant_total'] = montantTotal.toString();
       request.fields['date_emission'] =
           '${dateEmission.year.toString().padLeft(4, '0')}-${dateEmission.month.toString().padLeft(2, '0')}-${dateEmission.day.toString().padLeft(2, '0')}';
-      request.files.add(await http.MultipartFile.fromPath('justificatif', justificatif.path));
+      if (justificatif != null) {
+        request.files.add(await http.MultipartFile.fromPath('justificatif', justificatif.path));
+      }
       final streamed = await request.send();
       return http.Response.fromStream(streamed);
     }

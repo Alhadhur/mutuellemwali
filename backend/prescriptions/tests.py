@@ -156,8 +156,9 @@ class RejeuDesReglesTest(BasePrescriptions):
 class SaisieManuelleTest(BasePrescriptions):
     """Ordonnance papier saisie par le service mutuelle depuis le back-office.
 
-    Le scan reste obligatoire, comme la photo sur mobile : c'est la pièce
-    justificative sur laquelle repose tout le contrôle."""
+    Le scan est facultatif en phase de démarrage : les vérifications se font
+    alors manuellement, sur pièce papier, en attendant l'usage officiel de
+    l'application mobile."""
 
     def setUp(self):
         super().setUp()
@@ -178,13 +179,14 @@ class SaisieManuelleTest(BasePrescriptions):
         valeurs.update(surcharges)
         return valeurs
 
-    def test_le_justificatif_est_obligatoire(self):
+    def test_le_justificatif_est_facultatif(self):
         donnees = self.donnees()
         del donnees["justificatif"]
 
         self.client.post("/backoffice/prescriptions/nouvelle/", donnees)
 
-        self.assertEqual(Prescription.objects.count(), 0)
+        prescription = Prescription.objects.get(numero_ordonnance="ORD-PAPIER-1")
+        self.assertFalse(prescription.justificatif)
 
     def test_la_saisie_enregistre_l_auteur_et_calcule_le_remboursement(self):
         self.client.post("/backoffice/prescriptions/nouvelle/", self.donnees())

@@ -84,10 +84,6 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
       setState(() => _erreur = 'Veuillez indiquer la nature du soin.');
       return;
     }
-    if (_photo == null) {
-      setState(() => _erreur = 'Veuillez joindre une photo de l\'ordonnance ou de la facture.');
-      return;
-    }
 
     setState(() => _envoiEnCours = true);
     try {
@@ -98,7 +94,7 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
         numeroOrdonnance: _numeroCtrl.text.trim(),
         montantTotal: int.parse(_montantCtrl.text.trim()),
         dateEmission: _dateEmission,
-        justificatif: _photo!,
+        justificatif: _photo,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -136,7 +132,7 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
                         children: [
                           Icon(Icons.add_a_photo_outlined, size: 36, color: Colors.grey.shade500),
                           const SizedBox(height: 8),
-                          Text('Ajouter une photo de l\'ordonnance / facture',
+                          Text('Ajouter une photo de l\'ordonnance / facture (facultatif)',
                               style: TextStyle(color: Colors.grey.shade600)),
                         ],
                       )

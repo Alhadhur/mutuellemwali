@@ -52,7 +52,15 @@ class Prescription(models.Model):
     montant_total = models.PositiveIntegerField(help_text="Montant en KMF (sans décimale).")
     montant_rembourse = models.PositiveIntegerField(editable=False, default=0)
     date_emission = models.DateField()
-    justificatif = models.FileField(upload_to="justificatifs_prescriptions/")
+    justificatif = models.FileField(
+        upload_to="justificatifs_prescriptions/",
+        blank=True,
+        help_text=(
+            "Facultatif en phase de démarrage : les vérifications se font alors "
+            "manuellement, sur pièce papier, en attendant l'usage officiel de "
+            "l'application mobile."
+        ),
+    )
 
     statut = models.CharField(max_length=20, choices=StatutPrescription.choices, default=StatutPrescription.SOUMISE)
     motif_signalement = models.TextField(blank=True)
