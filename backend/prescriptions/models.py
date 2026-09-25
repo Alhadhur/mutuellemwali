@@ -98,7 +98,7 @@ class Prescription(models.Model):
         return (meme_numero | meme_montant).distinct()
 
     def calculer_montant_rembourse(self):
-        taux = self.prestataire.taux_prise_en_charge
+        taux = self.prestataire.taux_pour(self.nature)
         montant = Decimal(self.montant_total) * taux / Decimal("100")
         return int(montant.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 

@@ -80,11 +80,35 @@ class PrestataireListView(generics.ListAPIView):
 
 
 class NatureSoinListView(generics.ListAPIView):
-    """Natures de soin proposées à la saisie mobile."""
+    """Natures de soin proposées à la saisie mobile.
+
+    Avec `?prestataire=<id>`, restreint la liste à ce que cet établissement
+    propose réellement (et renvoie le taux applicable à chacune) — sauf si
+    aucun tarif n'y a encore été détaillé, auquel cas la liste complète reste
+    proposée, comme avant l'ajout des tarifs par nature de soin.
+    """
 
     serializer_class = NatureSoinSerializer
     permission_classes = [permissions.IsAuthenticated]
-    queryset = NatureSoin.proposables()
+
+    def _prestataire_demande(self):
+        prestataire_id = self.request.query_params.get("prestataire")
+        if not prestataire_id:
+            return None
+        return Prestataire.objects.filter(pk=prestataire_id).first()
+
+    def get_queryset(self):
+        prestataire = self._prestataire_demande()
+        if prestataire is not None:
+            restreintes = prestataire.natures_proposees()
+            if restreintes.exists():
+                return restreintes
+        return NatureSoin.proposables()
+
+    def get_serializer_context(self):
+        contexte = super().get_serializer_context()
+        contexte["prestataire"] = self._prestataire_demande()
+        return contexte
 
 
 class PrescriptionListCreateView(generics.ListCreateAPIView):

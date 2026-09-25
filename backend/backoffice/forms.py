@@ -7,7 +7,7 @@ from beneficiaires.models import Agent, AyantDroit
 from facturation.models import Facture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription
-from prestataires.models import Prestataire
+from prestataires.models import Prestataire, TarifPrestataire
 
 
 class DateInput(forms.DateInput):
@@ -186,6 +186,17 @@ class PrestataireForm(forms.ModelForm):
             "statut",
             "utilisateur",
         ]
+
+
+class TarifPrestataireForm(forms.ModelForm):
+    """Renseigner une nature déjà tarifée chez ce prestataire met à jour son
+    taux au lieu d'en créer un doublon (voir TarifPrestataireAjouter)."""
+
+    nature_soin = forms.ModelChoiceField(queryset=NatureSoin.proposables(), label="Nature de soin")
+
+    class Meta:
+        model = TarifPrestataire
+        fields = ["nature_soin", "taux_prise_en_charge"]
 
 
 class FactureForm(forms.ModelForm):

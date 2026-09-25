@@ -275,8 +275,13 @@ repartir sur une base vierge, videz simplement les tables via l'admin ou
   couvert à partir de l'âge limite paramétré (**18 ans** par défaut). Le calcul
   se fait à la volée depuis `date_naissance` et est signalé dans l'admin comme
   dans l'app mobile.
-- **Calcul du remboursement** : `montant_rembourse = montant_total × taux_prise_en_charge du prestataire`,
-  arrondi à l'entier KMF le plus proche.
+- **Calcul du remboursement** : `montant_rembourse = montant_total × taux applicable`, arrondi à
+  l'entier KMF le plus proche. Le taux est celui du **tarif détaillé** pour la nature de soin de la
+  prescription chez ce prestataire (`TarifPrestataire`) s'il existe — une consultation et une
+  chirurgie dans le même hôpital peuvent ainsi être remboursées à des taux différents — sinon le
+  taux général du prestataire s'applique, comme avant l'ajout de ces tarifs. Gérable depuis la fiche
+  du prestataire (`/backoffice/prestataires/<id>/`) ; l'app mobile ne propose à l'agent que les
+  natures réellement tarifées chez le prestataire choisi, tant qu'au moins une l'est.
 - **Validation jamais automatique à la soumission** : une prescription ne peut
   pas devenir `VALIDEE` ou `REJETEE` d'elle-même. Deux chemins seulement y
   mènent, tous deux déclenchés par une action humaine : l'arbitrage individuel

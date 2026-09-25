@@ -178,10 +178,14 @@ class ApiService {
     return (data['results'] as List).map((e) => Prestataire.fromJson(e)).toList();
   }
 
-  Future<List<NatureSoin>> getNaturesDeSoin() async {
-    final response = await _authorizedRequest(
-      (headers) => http.get(Uri.parse('$_baseUrl/natures-de-soin/'), headers: headers),
+  /// Sans [prestataireId] : toutes les natures actives. Avec : seulement
+  /// celles que ce prestataire propose réellement (taux inclus), sauf s'il
+  /// n'a aucun tarif détaillé — alors la liste complète reste renvoyée.
+  Future<List<NatureSoin>> getNaturesDeSoin({int? prestataireId}) async {
+    final uri = Uri.parse('$_baseUrl/natures-de-soin/').replace(
+      queryParameters: prestataireId != null ? {'prestataire': prestataireId.toString()} : null,
     );
+    final response = await _authorizedRequest((headers) => http.get(uri, headers: headers));
     _ensureOk(response);
     final data = jsonDecode(utf8.decode(response.bodyBytes));
     return (data['results'] as List).map((e) => NatureSoin.fromJson(e)).toList();

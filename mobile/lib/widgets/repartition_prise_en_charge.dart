@@ -10,11 +10,13 @@ import '../models/models.dart';
 /// le coût **total** du soin qui est attendu, pas la part réglée au guichet.
 class RepartitionPriseEnCharge extends StatelessWidget {
   final Prestataire? prestataire;
+  final NatureSoin? natureSoin;
   final String montantSaisi;
 
   const RepartitionPriseEnCharge({
     super.key,
     required this.prestataire,
+    this.natureSoin,
     required this.montantSaisi,
   });
 
@@ -39,7 +41,9 @@ class RepartitionPriseEnCharge extends StatelessWidget {
       );
     }
 
-    final taux = prestataire!.tauxPriseEnCharge;
+    // Le taux détaillé de la nature choisie prime sur le taux général du
+    // prestataire, quand ce prestataire en a un pour cette nature.
+    final taux = natureSoin?.tauxPriseEnCharge ?? prestataire!.tauxPriseEnCharge;
     final partMutuelle = (montant * taux / 100).round();
     final partAgent = montant - partMutuelle;
     final format = NumberFormat.decimalPatternDigits(locale: 'fr_FR', decimalDigits: 0);

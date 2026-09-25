@@ -48,6 +48,12 @@ urlpatterns = [
     path("prestataires/nouveau/", views.PrestataireCreer.as_view(), name="prestataire_creer"),
     path("prestataires/<int:pk>/", views.PrestataireModifier.as_view(), name="prestataire_modifier"),
     path("prestataires/<int:pk>/statut/", views.PrestataireBasculerStatut.as_view(), name="prestataire_statut"),
+    path("prestataires/<int:pk>/tarifs/", views.PrestataireTarifAjouter.as_view(), name="prestataire_tarif_ajouter"),
+    path(
+        "prestataires/<int:pk>/tarifs/<int:tarif_pk>/supprimer/",
+        views.PrestataireTarifSupprimer.as_view(),
+        name="prestataire_tarif_supprimer",
+    ),
 
     path("utilisateurs/", views.UtilisateurListe.as_view(), name="utilisateurs"),
     path("utilisateurs/nouveau/", views.UtilisateurCreer.as_view(), name="utilisateur_creer"),

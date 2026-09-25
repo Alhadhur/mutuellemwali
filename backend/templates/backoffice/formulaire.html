@@ -41,6 +41,48 @@
   </section>
 {% endif %}
 
+{% if prestataire_tarifs is not None %}
+  <section>
+    <h2>Tarifs par nature de soin</h2>
+    <div style="padding:18px;">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Remplace, pour la nature choisie, le taux général ci-dessus (actuellement {{ object.taux_prise_en_charge }} %).
+        Une nature sans ligne ici reste au taux général.
+      </p>
+      {% if prestataire_tarifs %}
+        <table style="margin-bottom:16px;">
+          <tr><th>Nature de soin</th><th>Taux</th><th></th></tr>
+          {% for tarif in prestataire_tarifs %}
+            <tr>
+              <td>{{ tarif.nature_soin.libelle }}</td>
+              <td>{{ tarif.taux_prise_en_charge }} %</td>
+              <td style="text-align:right;">
+                <form method="post" action="{% url 'backoffice:prestataire_tarif_supprimer' object.pk tarif.pk %}" style="display:inline">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-danger btn-petit">Supprimer</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <div class="empty" style="margin-bottom:16px;">Aucun tarif détaillé : toutes les natures sont remboursées au taux général.</div>
+      {% endif %}
+
+      <form method="post" action="{{ url_tarif_ajouter }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        {% csrf_token %}
+        {% for champ in form_tarif %}
+          <div class="champ" style="min-width:200px;">
+            <label for="{{ champ.id_for_label }}">{{ champ.label }}</label>
+            {{ champ }}
+          </div>
+        {% endfor %}
+        <button class="btn btn-secondaire" type="submit">Ajouter / mettre à jour</button>
+      </form>
+    </div>
+  </section>
+{% endif %}
+
 {% if utilisateur_edite %}
   <section>
     <h2>Mot de passe</h2>

@@ -43,6 +43,18 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
     });
   }
 
+  /// Un prestataire donné ne propose pas forcément toutes les natures de
+  /// soin, et le taux applicable peut différer d'un établissement à l'autre :
+  /// la liste (et le taux affiché) se recharge donc à chaque changement.
+  Future<void> _choisirPrestataire(Prestataire? prestataire) async {
+    setState(() {
+      _prestataireChoisi = prestataire;
+      _natureChoisie = null;
+    });
+    final natures = await ApiService.instance.getNaturesDeSoin(prestataireId: prestataire?.id);
+    if (mounted) setState(() => _natures = natures);
+  }
+
   Future<void> _choisirPhoto(ImageSource source) async {
     final picker = ImagePicker();
     final fichier = await picker.pickImage(source: source, imageQuality: 85);
@@ -151,7 +163,7 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
                             child: Text('${p.nom} (${p.typePrestataireDisplay})', overflow: TextOverflow.ellipsis),
                           ))
                       .toList(),
-                  onChanged: (v) => setState(() => _prestataireChoisi = v),
+                  onChanged: _choisirPrestataire,
                 );
               },
             ),
@@ -205,7 +217,11 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
               },
             ),
             const SizedBox(height: 10),
-            RepartitionPriseEnCharge(prestataire: _prestataireChoisi, montantSaisi: _montantCtrl.text),
+            RepartitionPriseEnCharge(
+              prestataire: _prestataireChoisi,
+              natureSoin: _natureChoisie,
+              montantSaisi: _montantCtrl.text,
+            ),
             const SizedBox(height: 14),
             ListTile(
               contentPadding: EdgeInsets.zero,

@@ -149,9 +149,21 @@ class HistoriqueStatutSerializer(serializers.ModelSerializer):
 
 
 class NatureSoinSerializer(serializers.ModelSerializer):
+    """Le taux n'est renseigné que si la requête précise un prestataire
+    (`?prestataire=<id>`) : sans lui, on ne sait pas quel taux appliquer,
+    puisqu'il peut varier d'un établissement à l'autre."""
+
+    taux_prise_en_charge = serializers.SerializerMethodField()
+
     class Meta:
         model = NatureSoin
-        fields = ["id", "libelle"]
+        fields = ["id", "libelle", "taux_prise_en_charge"]
+
+    def get_taux_prise_en_charge(self, obj):
+        prestataire = self.context.get("prestataire")
+        if prestataire is None:
+            return None
+        return prestataire.taux_pour(obj)
 
 
 class PrescriptionSerializer(serializers.ModelSerializer):

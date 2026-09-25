@@ -21,7 +21,7 @@ from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerificat
 from facturation.models import Facture, StatutFacture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription, StatutPrescription
-from prestataires.models import Prestataire, StatutPrestataire
+from prestataires.models import Prestataire, StatutPrestataire, TarifPrestataire
 
 from . import exports, forms, imports, tableaux
 
@@ -737,6 +737,45 @@ class PrestataireModifier(FormulaireBase, UpdateView):
     form_class = forms.PrestataireForm
     titre = "Modifier le prestataire"
     success_url = reverse_lazy("backoffice:prestataires")
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["prestataire_tarifs"] = self.object.tarifs.select_related("nature_soin").all()
+        contexte["form_tarif"] = styliser(forms.TarifPrestataireForm())
+        contexte["url_tarif_ajouter"] = reverse("backoffice:prestataire_tarif_ajouter", args=[self.object.pk])
+        return contexte
+
+
+class PrestataireTarifAjouter(AccesModification, View):
+    """Ajoute ou met à jour (même nature = même ligne) un tarif détaillé.
+
+    Tant qu'aucun tarif n'existe pour ce prestataire, le taux général
+    continue de s'appliquer à toutes les prescriptions : ajouter le premier
+    tarif ne change donc rien aux autres natures, seulement à celle-ci.
+    """
+
+    def post(self, request, pk):
+        prestataire = get_object_or_404(Prestataire, pk=pk)
+        form = forms.TarifPrestataireForm(request.POST)
+        if form.is_valid():
+            TarifPrestataire.objects.update_or_create(
+                prestataire=prestataire,
+                nature_soin=form.cleaned_data["nature_soin"],
+                defaults={"taux_prise_en_charge": form.cleaned_data["taux_prise_en_charge"]},
+            )
+            messages.success(request, "Tarif enregistré.")
+        else:
+            erreurs = "; ".join(f"{champ} : {', '.join(liste)}" for champ, liste in form.errors.items())
+            messages.error(request, f"Tarif invalide — {erreurs}")
+        return redirect("backoffice:prestataire_modifier", pk=pk)
+
+
+class PrestataireTarifSupprimer(AccesModification, View):
+    def post(self, request, pk, tarif_pk):
+        tarif = get_object_or_404(TarifPrestataire, pk=tarif_pk, prestataire_id=pk)
+        tarif.delete()
+        messages.success(request, "Tarif supprimé : ce prestataire revient au taux général pour cette nature.")
+        return redirect("backoffice:prestataire_modifier", pk=pk)
 
 
 class PrestataireBasculerStatut(AccesModification, View):

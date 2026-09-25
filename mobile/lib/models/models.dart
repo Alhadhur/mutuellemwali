@@ -183,11 +183,18 @@ class Prestataire {
 class NatureSoin {
   final int id;
   final String libelle;
+  // Non nul seulement quand la liste a été demandée pour un prestataire
+  // précis (le taux peut varier d'un établissement à l'autre).
+  final double? tauxPriseEnCharge;
 
-  NatureSoin({required this.id, required this.libelle});
+  NatureSoin({required this.id, required this.libelle, this.tauxPriseEnCharge});
 
-  factory NatureSoin.fromJson(Map<String, dynamic> json) =>
-      NatureSoin(id: json['id'], libelle: json['libelle']);
+  factory NatureSoin.fromJson(Map<String, dynamic> json) => NatureSoin(
+        id: json['id'],
+        libelle: json['libelle'],
+        tauxPriseEnCharge:
+            json['taux_prise_en_charge'] != null ? double.parse(json['taux_prise_en_charge'].toString()) : null,
+      );
 }
 
 class HistoriqueStatut {
