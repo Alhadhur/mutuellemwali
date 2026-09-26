@@ -9,6 +9,7 @@
     <span style="font-size:13px;color:var(--muted);">
       {{ agent.utilisateur.get_full_name }} — matricule {{ agent.matricule }}{% if agent.site %} — {{ agent.site }}{% endif %}
     </span>
+    <a class="btn" href="{% url 'backoffice:ma_prescription_creer' %}">Nouvelle prescription</a>
   </div>
 
   <div class="kpis">

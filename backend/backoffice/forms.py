@@ -136,27 +136,15 @@ class AyantDroitForm(forms.ModelForm):
         widgets = {"date_naissance": DateInput, "date_validite": DateInput}
 
 
-class PrescriptionForm(forms.ModelForm):
-    """Saisie d'une ordonnance reçue au format papier. Le statut n'est pas
-    proposé : il est posé par la détection de doublons, comme pour une
-    soumission mobile."""
+class BasePrescriptionForm(forms.ModelForm):
+    """Filtres communs à la saisie RH et à l'auto-saisie agent : prestataires
+    actifs, natures proposables, et le taux de chacun embarqué pour afficher
+    la répartition sans aller-retour serveur au changement de prestataire."""
 
     class Meta:
-        model = Prescription
-        fields = [
-            "agent",
-            "ayant_droit",
-            "prestataire",
-            "nature",
-            "numero_ordonnance",
-            "montant_total",
-            "date_emission",
-            "justificatif",
-        ]
         widgets = {"date_emission": DateInput}
         labels = {"montant_total": "Coût total du soin (KMF)"}
         help_texts = {
-            "ayant_droit": "Laisser vide si l'ordonnance concerne l'agent lui-même.",
             "montant_total": (
                 "Les 100 % portés sur l'ordonnance, avant prise en charge — "
                 "et non la part réglée au guichet. La répartition est calculée "
@@ -171,14 +159,78 @@ class PrescriptionForm(forms.ModelForm):
         # proposée à la saisie.
         self.fields["nature"].queryset = NatureSoin.proposables()
         self.fields["nature"].empty_label = "— choisir —"
-        # Le taux voyage avec l'option : la répartition s'affiche sans
-        # aller-retour serveur au changement de prestataire.
         self.taux_par_prestataire = json.dumps(
             {
                 str(prestataire.pk): float(prestataire.taux_prise_en_charge)
                 for prestataire in self.fields["prestataire"].queryset
             }
         )
+
+
+class PrescriptionForm(BasePrescriptionForm):
+    """Saisie d'une ordonnance reçue au format papier par le service mutuelle.
+    Le statut n'est pas proposé : il est posé par la détection de doublons,
+    comme pour une soumission mobile."""
+
+    class Meta(BasePrescriptionForm.Meta):
+        model = Prescription
+        fields = [
+            "agent",
+            "ayant_droit",
+            "prestataire",
+            "nature",
+            "numero_ordonnance",
+            "montant_total",
+            "date_emission",
+            "justificatif",
+        ]
+        help_texts = {
+            **BasePrescriptionForm.Meta.help_texts,
+            "ayant_droit": "Laisser vide si l'ordonnance concerne l'agent lui-même.",
+        }
+
+
+class MaPrescriptionForm(BasePrescriptionForm):
+    """Auto-saisie par l'agent lui-même, depuis son tableau de bord : ni la
+    fiche agent ni le statut ne se choisissent, seul le bénéficiaire (parmi
+    ses propres ayants droit) et les détails de l'ordonnance."""
+
+    class Meta(BasePrescriptionForm.Meta):
+        model = Prescription
+        fields = [
+            "ayant_droit",
+            "prestataire",
+            "nature",
+            "numero_ordonnance",
+            "montant_total",
+            "date_emission",
+            "justificatif",
+        ]
+        help_texts = {
+            **BasePrescriptionForm.Meta.help_texts,
+            "ayant_droit": "Laisser vide si l'ordonnance vous concerne directement.",
+        }
+
+    def __init__(self, *args, agent=None, **kwargs):
+        self.agent = agent
+        super().__init__(*args, **kwargs)
+        if agent:
+            # « agent » n'est pas un champ du formulaire (verrouillé sur
+            # l'utilisateur connecté) : sans ça, Prescription.clean() ne le
+            # verrait toujours pas encore posé sur l'instance à la validation
+            # et rejetterait tout ayant droit choisi comme n'appartenant à
+            # personne.
+            self.instance.agent = agent
+        self.fields["ayant_droit"].queryset = agent.ayants_droit.all() if agent else AyantDroit.objects.none()
+        self.fields["ayant_droit"].empty_label = "Moi-même"
+        if agent:
+            couverts = {a.pk for a in agent.ayants_droit_couverts}
+
+            def label_ayant_droit(ayant_droit, couverts=couverts):
+                base = f"{ayant_droit.prenom} {ayant_droit.nom} ({ayant_droit.get_lien_parente_display()})"
+                return base if ayant_droit.pk in couverts else f"{base} — non couvert"
+
+            self.fields["ayant_droit"].label_from_instance = label_ayant_droit
 
 
 class PrestataireForm(forms.ModelForm):

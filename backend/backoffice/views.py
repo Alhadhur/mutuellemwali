@@ -365,6 +365,41 @@ class MonTableauDeBord(AccesAgent, TemplateView):
         return contexte
 
 
+class MaPrescriptionCreer(AccesAgent, CreateView):
+    """Auto-saisie d'une ordonnance par l'agent lui-même, depuis son tableau
+    de bord — même circuit qu'une saisie RH ou une soumission mobile : la
+    détection de doublons s'applique et le statut reste soumis à une
+    validation manuelle du service mutuelle."""
+
+    model = Prescription
+    form_class = forms.MaPrescriptionForm
+    template_name = "backoffice/ma_prescription_form.html"
+    titre = "Nouvelle prescription"
+
+    def get_form(self, form_class=None):
+        return styliser(super().get_form(form_class))
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["agent"] = self.request.user.agent
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["titre"] = self.titre
+        contexte["url_retour"] = reverse("backoffice:mon_tableau_de_bord")
+        return contexte
+
+    def form_valid(self, form):
+        form.instance.agent = self.request.user.agent
+        form.instance.soumis_par = self.request.user
+        messages.success(self.request, f"{self.titre} : enregistrement effectué.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("backoffice:mon_tableau_de_bord")
+
+
 # --- Agents ---------------------------------------------------------------
 
 

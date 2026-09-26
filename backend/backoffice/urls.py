@@ -10,6 +10,7 @@ urlpatterns = [
     path("mon-profil/", views.MonProfil.as_view(), name="mon_profil"),
     path("mon-profil/mot-de-passe/", views.MonMotDePasse.as_view(), name="mon_mot_de_passe"),
     path("mon-tableau-de-bord/", views.MonTableauDeBord.as_view(), name="mon_tableau_de_bord"),
+    path("mon-tableau-de-bord/prescription/", views.MaPrescriptionCreer.as_view(), name="ma_prescription_creer"),
 
     path("anomalies/", views.AnomaliesView.as_view(), name="anomalies"),
     path("anomalies/export/", views.AnomaliesExport.as_view(), name="anomalies_export"),

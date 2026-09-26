@@ -8,7 +8,7 @@ from django.utils import timezone
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
 from facturation.models import Facture, StatutLigne
-from parametrage.models import Parametrage
+from parametrage.models import NatureSoin, Parametrage
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TypePrestataire
 
@@ -107,6 +107,80 @@ class TableauDeBordAgentTest(BaseBackoffice):
         reponse = self.client.get(reverse("backoffice:mon_tableau_de_bord"))
 
         self.assertEqual(reponse.status_code, 403)
+
+
+class MaPrescriptionCreerTest(BaseBackoffice):
+    """L'agent peut saisir sa propre ordonnance depuis son tableau de bord,
+    en attendant l'usage officiel de l'application mobile — mais seulement la
+    sienne, pour ses propres ayants droit."""
+
+    def setUp(self):
+        super().setUp()
+        self.nature = NatureSoin.objects.get(libelle="Consultation")
+        self.ayant_droit = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Fils",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
+        autre_compte = Utilisateur.objects.create_user("A0002", "x", nom="Autre", prenom="Personne", role=Role.AGENT)
+        self.autre_agent = Agent.objects.create(utilisateur=autre_compte, site="Moroni")
+
+    def _donnees(self, **extra):
+        donnees = {
+            "prestataire": self.prestataire.pk,
+            "nature": self.nature.pk,
+            "numero_ordonnance": "H-42",
+            "montant_total": "10000",
+            "date_emission": "2026-01-05",
+        }
+        donnees.update(extra)
+        return donnees
+
+    def test_un_non_agent_ne_peut_pas_acceder_au_formulaire(self):
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:ma_prescription_creer"))
+
+        self.assertEqual(reponse.status_code, 403)
+
+    def test_l_agent_cree_sa_propre_prescription(self):
+        self.client.force_login(self.compte_agent)
+
+        reponse = self.client.post(reverse("backoffice:ma_prescription_creer"), self._donnees())
+
+        prescription = Prescription.objects.get(numero_ordonnance="H-42")
+        self.assertEqual(prescription.agent, self.agent)
+        self.assertEqual(prescription.soumis_par, self.compte_agent)
+        self.assertRedirects(reponse, reverse("backoffice:mon_tableau_de_bord"))
+
+    def test_l_agent_peut_saisir_pour_un_de_ses_ayants_droit(self):
+        self.client.force_login(self.compte_agent)
+
+        self.client.post(reverse("backoffice:ma_prescription_creer"), self._donnees(ayant_droit=self.ayant_droit.pk))
+
+        prescription = Prescription.objects.get(numero_ordonnance="H-42")
+        self.assertEqual(prescription.ayant_droit, self.ayant_droit)
+
+    def test_l_agent_ne_peut_pas_saisir_pour_l_ayant_droit_d_un_autre(self):
+        autre_ayant_droit = AyantDroit.objects.create(
+            agent=self.autre_agent,
+            nom="Etranger",
+            prenom="Ayant",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+        )
+        self.client.force_login(self.compte_agent)
+
+        self.client.post(
+            reverse("backoffice:ma_prescription_creer"), self._donnees(ayant_droit=autre_ayant_droit.pk)
+        )
+
+        self.assertFalse(Prescription.objects.filter(numero_ordonnance="H-42").exists())
 
 
 class ListesTest(BaseBackoffice):

@@ -1,0 +1,45 @@
+{% extends "backoffice/formulaire.html" %}
+
+{% comment %}
+Auto-saisie par l'agent : pas de recherche d'agent (c'est lui), le
+bénéficiaire est restreint à ses propres ayants droit, et la répartition
+80/20 s'affiche au fur et à mesure de la saisie — comme sur le formulaire
+équivalent du back-office RH.
+{% endcomment %}
+
+{% block champs %}
+  {% for champ in form %}
+    {% include "backoffice/_champ.html" %}
+    {% if champ.name == 'montant_total' %}
+      <div class="repartition champ--large" id="repartition">
+        <span class="muet">Choisissez un prestataire et saisissez le coût pour voir la répartition.</span>
+      </div>
+    {% endif %}
+  {% endfor %}
+
+<script>
+(function () {
+  const TAUX = {{ form.taux_par_prestataire|safe }};
+  const selectPrestataire = document.getElementById('{{ form.prestataire.auto_id }}');
+  const champMontant = document.getElementById('{{ form.montant_total.auto_id }}');
+  const repartition = document.getElementById('repartition');
+
+  function majRepartition() {
+    const taux = TAUX[selectPrestataire.value];
+    const total = parseInt(champMontant.value, 10);
+    if (!taux || !total || total <= 0) {
+      repartition.innerHTML = '<span class="muet">Choisissez un prestataire et saisissez le coût pour voir la répartition.</span>';
+      return;
+    }
+    const mutuelle = Math.round(total * taux / 100);
+    repartition.innerHTML =
+      'Sur ' + total + ' KMF : la mutuelle prend en charge <strong>' + mutuelle + ' KMF</strong> (' + taux + ' %), ' +
+      'vous réglez <strong>' + (total - mutuelle) + ' KMF</strong> au guichet.';
+  }
+
+  selectPrestataire.addEventListener('change', majRepartition);
+  champMontant.addEventListener('input', majRepartition);
+  majRepartition();
+})();
+</script>
+{% endblock %}
