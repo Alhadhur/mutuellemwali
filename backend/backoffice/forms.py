@@ -11,7 +11,15 @@ from prestataires.models import Prestataire, TarifPrestataire
 
 
 class DateInput(forms.DateInput):
+    """Un <input type="date"> HTML5 n'affiche sa valeur que si elle est au
+    format ISO (aaaa-mm-jj) : avec LANGUAGE_CODE=fr-fr, Django utilise sinon
+    le format français (jj/mm/aaaa) pour pré-remplir le champ, que le
+    navigateur ignore silencieusement — le champ paraît alors vide."""
+
     input_type = "date"
+
+    def __init__(self, attrs=None, format=None):
+        super().__init__(attrs, format=format or "%Y-%m-%d")
 
 
 class UtilisateurForm(forms.ModelForm):
