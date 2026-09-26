@@ -157,6 +157,7 @@ class ImportCSVBase(AccesModification, TemplateView):
     titre = ""
     aide = ""
     colonnes_attendues = frozenset()
+    alias = {}
     url_liste = ""
     cle_session = ""
 
@@ -182,7 +183,9 @@ class ImportCSVBase(AccesModification, TemplateView):
             return self.render_to_response(self.get_context_data(form=form))
 
         contenu = request.FILES["fichier"].read().decode("utf-8-sig")
-        rapport = imports.executer(contenu, self.colonnes_attendues, self.importer_ligne, ecrire=False)
+        rapport = imports.executer(
+            contenu, self.colonnes_attendues, self.importer_ligne, ecrire=False, alias=self.alias
+        )
         if not rapport["erreurs"]:
             request.session[self.cle_session] = contenu
         return self.render_to_response(self.get_context_data(rapport=rapport))
@@ -193,7 +196,9 @@ class ImportCSVBase(AccesModification, TemplateView):
             messages.error(request, "Le fichier analysé a expiré : réimportez-le.")
             return redirect(self.url_liste)
 
-        rapport = imports.executer(contenu, self.colonnes_attendues, self.importer_ligne, ecrire=True)
+        rapport = imports.executer(
+            contenu, self.colonnes_attendues, self.importer_ligne, ecrire=True, alias=self.alias
+        )
         if rapport["erreurs"]:
             messages.error(request, "Le fichier a changé entre l'analyse et la confirmation : réimportez-le.")
             return redirect(self.url_liste)
@@ -478,6 +483,9 @@ LIENS_IMPORT.update({libelle.lower(): valeur for valeur, libelle in LienParente.
 JUSTIFICATIFS_IMPORT = {valeur.lower(): valeur for valeur in TypeJustificatif.values}
 JUSTIFICATIFS_IMPORT.update({libelle.lower(): valeur for valeur, libelle in TypeJustificatif.choices})
 
+STATUTS_VERIFICATION_IMPORT = {valeur.lower(): valeur for valeur in StatutVerification.values}
+STATUTS_VERIFICATION_IMPORT.update({libelle.lower(): valeur for valeur, libelle in StatutVerification.choices})
+
 
 class AyantDroitImport(ImportCSVBase):
     titre = "Importer des ayants droit"
@@ -485,12 +493,22 @@ class AyantDroitImport(ImportCSVBase):
         "Colonnes obligatoires : agent (matricule), nom, prenom, lien_parente "
         "(conjoint/enfant/autre). Facultatives : date_naissance (JJ/MM/AAAA), "
         "type_justificatif (acte_naissance/acte_mariage/certificat_scolarite/autre — "
-        "« autre » par défaut), date_validite. Une ligne dont l'agent, le nom et le "
+        "« autre » par défaut), date_validite, statut_verification "
+        "(en_attente/valide/rejete — « en attente » par défaut). Les en-têtes de "
+        "l'export (« Date de naissance », « Type de justificatif », « Statut de "
+        "vérification »…) sont aussi reconnus. Une ligne dont l'agent, le nom et le "
         "prénom correspondent déjà à un ayant droit le met à jour au lieu d'en créer "
         "un doublon. Le fichier du justificatif n'est jamais importé : chaque fiche "
         "créée doit le recevoir séparément, depuis la fiche, avant vérification."
     )
     colonnes_attendues = frozenset({"agent", "nom", "prenom", "lien_parente"})
+    alias = {
+        "date de naissance": "date_naissance",
+        "lien de parente": "lien_parente",
+        "type de justificatif": "type_justificatif",
+        "date de validite": "date_validite",
+        "statut de verification": "statut_verification",
+    }
     url_liste = "backoffice:ayants_droit"
     cle_session = "import_ayants_droit_csv"
 
@@ -515,11 +533,17 @@ class AyantDroitImport(ImportCSVBase):
             raise imports.LigneInvalide(f"type de justificatif « {ligne.get('type_justificatif')} » inconnu")
         type_justificatif = JUSTIFICATIFS_IMPORT.get(type_brut, TypeJustificatif.AUTRE)
 
+        statut_brut = ligne.get("statut_verification", "").lower()
+        if statut_brut and statut_brut not in STATUTS_VERIFICATION_IMPORT:
+            raise imports.LigneInvalide(f"statut de vérification « {ligne.get('statut_verification')} » inconnu")
+        statut_verification = STATUTS_VERIFICATION_IMPORT.get(statut_brut, StatutVerification.EN_ATTENTE)
+
         champs = {
             "date_naissance": imports.date_ou_erreur(ligne.get("date_naissance", ""), "date_naissance"),
             "lien_parente": lien,
             "type_justificatif": type_justificatif,
             "date_validite": imports.date_ou_erreur(ligne.get("date_validite", ""), "date_validite"),
+            "statut_verification": statut_verification,
         }
 
         existant = AyantDroit.objects.filter(agent=agent, nom__iexact=nom, prenom__iexact=prenom).first()

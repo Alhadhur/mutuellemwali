@@ -454,6 +454,21 @@ class ImportsWebTest(BaseBackoffice):
         self.assertEqual(utilisateur.region, "Moheli")
         self.assertTrue(utilisateur.is_active)
 
+    def test_import_ayants_droit_reconnait_les_en_tetes_de_l_export(self):
+        contenu = (
+            "Agent;Nom;Prénom;Date de naissance;lien_parente;Type de justificatif;"
+            "Justificatif;Date de validité;Statut de vérification\n"
+            "A0001;HOUFRA;RAMADANE;08/06/2009;Enfant;Acte de naissance;;;Validé\n"
+        )
+        self.client.post(reverse("backoffice:ayant_droit_import"), {"fichier": fichier_csv(contenu)})
+
+        self.client.post(reverse("backoffice:ayant_droit_import"), {"confirmer": "1"})
+
+        ayant_droit = AyantDroit.objects.get(agent=self.agent, nom="HOUFRA")
+        self.assertEqual(ayant_droit.date_naissance, date(2009, 6, 8))
+        self.assertEqual(ayant_droit.type_justificatif, TypeJustificatif.ACTE_NAISSANCE)
+        self.assertEqual(ayant_droit.statut_verification, StatutVerification.VALIDE)
+
     # --- Prestataires -------------------------------------------------
 
     def test_import_prestataires_apercu_signale_l_erreur_sans_rien_ecrire(self):
