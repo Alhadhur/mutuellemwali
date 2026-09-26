@@ -5,17 +5,14 @@
 
 {% block contenu %}
 <div class="barre-actions">
-  <div style="display:flex;gap:8px;align-items:center;">
+  <form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     {% if avec_recherche %}
-      <form method="get">
-        <input type="search" name="recherche" value="{{ recherche }}" placeholder="Rechercher…">
-        {% if filtre_statut %}<input type="hidden" name="statut" value="{{ filtre_statut }}">{% endif %}
-        <button class="btn btn-secondaire" type="submit">Rechercher</button>
-        {% if recherche %}<a class="btn btn-secondaire" href="?">Réinitialiser</a>{% endif %}
-      </form>
+      <input type="search" name="recherche" value="{{ recherche }}" placeholder="Rechercher…">
     {% endif %}
     {% block filtres %}{% endblock %}
-  </div>
+    <button class="btn btn-secondaire" type="submit">Filtrer</button>
+    {% if querystring_filtres %}<a class="btn btn-secondaire" href="?">Réinitialiser</a>{% endif %}
+  </form>
   <div style="display:flex;gap:8px;">
     {% if url_export %}<a class="btn btn-secondaire" href="{{ url_export }}">Exporter</a>{% endif %}
     {% if url_import and peut_modifier %}<a class="btn btn-secondaire" href="{{ url_import }}">Importer</a>{% endif %}
@@ -48,11 +45,11 @@
     {% if is_paginated %}
       <div class="pagination">
         {% if page_obj.has_previous %}
-          <a href="?page={{ page_obj.previous_page_number }}{% if recherche %}&recherche={{ recherche }}{% endif %}">← Précédent</a>
+          <a href="?page={{ page_obj.previous_page_number }}{% if querystring_filtres %}&{{ querystring_filtres }}{% endif %}">← Précédent</a>
         {% endif %}
         <span>Page {{ page_obj.number }} sur {{ page_obj.paginator.num_pages }} — {{ page_obj.paginator.count }} élément{{ page_obj.paginator.count|pluralize }}</span>
         {% if page_obj.has_next %}
-          <a href="?page={{ page_obj.next_page_number }}{% if recherche %}&recherche={{ recherche }}{% endif %}">Suivant →</a>
+          <a href="?page={{ page_obj.next_page_number }}{% if querystring_filtres %}&{{ querystring_filtres }}{% endif %}">Suivant →</a>
         {% endif %}
       </div>
     {% endif %}

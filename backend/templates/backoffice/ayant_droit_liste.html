@@ -1,0 +1,26 @@
+{% extends "backoffice/liste.html" %}
+
+{% block filtres %}
+  <select name="lien">
+    <option value="">Tous les liens</option>
+    {% for valeur, libelle in liens %}
+      <option value="{{ valeur }}" {% if filtre_lien == valeur %}selected{% endif %}>{{ libelle }}</option>
+    {% endfor %}
+  </select>
+  <select name="statut">
+    <option value="">Tous les statuts</option>
+    {% for valeur, libelle in statuts_verification %}
+      <option value="{{ valeur }}" {% if filtre_statut == valeur %}selected{% endif %}>{{ libelle }}</option>
+    {% endfor %}
+  </select>
+  <input type="number" name="age_min" min="0" placeholder="Âge min" value="{{ filtre_age_min }}" style="width:90px;">
+  <input type="number" name="age_max" min="0" placeholder="Âge max" value="{{ filtre_age_max }}" style="width:90px;">
+  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);white-space:nowrap;">
+    <input type="checkbox" name="limite_depassee" value="1" {% if filtre_limite_depassee %}checked{% endif %}>
+    Limite d'âge dépassée
+  </label>
+  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);white-space:nowrap;">
+    <input type="checkbox" name="justificatif_expire" value="1" {% if filtre_justificatif_expire %}checked{% endif %}>
+    Justificatif expiré
+  </label>
+{% endblock %}

@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
@@ -295,6 +296,92 @@ class AyantDroitTest(BaseBackoffice):
         self.assertEqual(self.ayant_droit.statut_verification, StatutVerification.VALIDE)
         self.assertEqual(self.ayant_droit.verifie_par, self.rh)
         self.assertIsNotNone(self.ayant_droit.date_verification)
+
+
+class AyantDroitFiltresTest(BaseBackoffice):
+    """Avec plusieurs milliers d'ayants droit, il faut pouvoir repérer d'un
+    coup d'œil les enfants qui sortent de la couverture (limite d'âge) ou les
+    justificatifs à renouveler (expirés), en plus des filtres attendus
+    (lien, statut, âge)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        aujourdhui = timezone.localdate()
+
+        self.enfant_jeune = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Jeune",
+            prenom="Enfant",
+            date_naissance=aujourdhui.replace(year=aujourdhui.year - 5),
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
+        self.enfant_majeur = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Majeur",
+            prenom="Enfant",
+            date_naissance=aujourdhui.replace(year=aujourdhui.year - 20),
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.EN_ATTENTE,
+        )
+        self.partenaire = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Partenaire",
+            prenom="Un",
+            date_naissance=aujourdhui.replace(year=aujourdhui.year - 30),
+            lien_parente=LienParente.CONJOINT,
+            type_justificatif=TypeJustificatif.ACTE_MARIAGE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.VALIDE,
+            date_validite=aujourdhui - timedelta(days=10),
+        )
+
+    def test_filtre_par_lien_de_parente(self):
+        reponse = self.client.get(reverse("backoffice:ayants_droit"), {"lien": LienParente.CONJOINT})
+
+        self.assertContains(reponse, "Un Partenaire")
+        self.assertNotContains(reponse, "Enfant Jeune")
+        self.assertNotContains(reponse, "Enfant Majeur")
+
+    def test_filtre_par_statut_de_verification(self):
+        reponse = self.client.get(reverse("backoffice:ayants_droit"), {"statut": StatutVerification.EN_ATTENTE})
+
+        self.assertContains(reponse, "Enfant Majeur")
+        self.assertNotContains(reponse, "Enfant Jeune")
+        self.assertNotContains(reponse, "Un Partenaire")
+
+    def test_filtre_par_age_minimum(self):
+        reponse = self.client.get(reverse("backoffice:ayants_droit"), {"age_min": "15"})
+
+        self.assertContains(reponse, "Enfant Majeur")
+        self.assertContains(reponse, "Un Partenaire")
+        self.assertNotContains(reponse, "Enfant Jeune")
+
+    def test_filtre_par_age_maximum(self):
+        reponse = self.client.get(reverse("backoffice:ayants_droit"), {"age_max": "10"})
+
+        self.assertContains(reponse, "Enfant Jeune")
+        self.assertNotContains(reponse, "Enfant Majeur")
+        self.assertNotContains(reponse, "Un Partenaire")
+
+    def test_filtre_limite_d_age_depassee_ne_retient_que_les_enfants_concernes(self):
+        reponse = self.client.get(reverse("backoffice:ayants_droit"), {"limite_depassee": "1"})
+
+        self.assertContains(reponse, "Enfant Majeur")
+        self.assertNotContains(reponse, "Enfant Jeune")
+        self.assertNotContains(reponse, "Un Partenaire")
+
+    def test_filtre_justificatif_expire(self):
+        reponse = self.client.get(reverse("backoffice:ayants_droit"), {"justificatif_expire": "1"})
+
+        self.assertContains(reponse, "Un Partenaire")
+        self.assertNotContains(reponse, "Enfant Jeune")
+        self.assertNotContains(reponse, "Enfant Majeur")
 
 
 class PrestataireTest(BaseBackoffice):

@@ -104,6 +104,11 @@ class ListeBase(AccesBackoffice, ListView):
         contexte["recherche"] = self.request.GET.get("recherche", "")
         contexte["avec_recherche"] = bool(self.champs_recherche)
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        # Reste des filtres (hors pagination), pour que « page suivante » ne
+        # perde pas ce que la barre de filtres avait posé.
+        parametres = self.request.GET.copy()
+        parametres.pop("page", None)
+        contexte["querystring_filtres"] = parametres.urlencode()
         return contexte
 
 
@@ -418,6 +423,7 @@ class AgentModifier(FormulaireBase, UpdateView):
 class AyantDroitListe(ListeBase):
     model = AyantDroit
     titre = "Ayants droit"
+    template_name = "backoffice/ayant_droit_liste.html"
     url_creation = "backoffice:ayant_droit_creer"
     libelle_creation = "Nouvel ayant droit"
     url_detail = "backoffice:ayant_droit_modifier"
@@ -430,10 +436,83 @@ class AyantDroitListe(ListeBase):
         ("Lien", "get_lien_parente_display"),
         ("Âge", lambda o: "—" if o.age is None else f"{o.age} ans"),
         ("Statut", "get_statut_verification_display"),
+        (
+            "Alertes",
+            lambda o: " ".join(
+                filter(
+                    None,
+                    [
+                        "Justificatif expiré" if o.est_expire else "",
+                        "Limite d'âge dépassée" if o.limite_age_depassee else "",
+                    ],
+                )
+            )
+            or "—",
+        ),
     )
 
+    @staticmethod
+    def _entier(brut):
+        try:
+            return int(brut)
+        except (TypeError, ValueError):
+            return None
+
     def get_queryset(self):
-        return super().get_queryset().select_related("agent__utilisateur")
+        queryset = super().get_queryset().select_related("agent__utilisateur")
+
+        lien = self.request.GET.get("lien", "")
+        if lien in LienParente.values:
+            queryset = queryset.filter(lien_parente=lien)
+
+        statut = self.request.GET.get("statut", "")
+        if statut in StatutVerification.values:
+            queryset = queryset.filter(statut_verification=statut)
+
+        age_min = self._entier(self.request.GET.get("age_min"))
+        age_max = self._entier(self.request.GET.get("age_max"))
+        limite_depassee = self.request.GET.get("limite_depassee") == "1"
+        justificatif_expire = self.request.GET.get("justificatif_expire") == "1"
+
+        if age_min is None and age_max is None and not limite_depassee and not justificatif_expire:
+            return queryset
+
+        # Âge, limite d'âge et expiration du justificatif sont des propriétés
+        # Python (calculées depuis date_naissance/date_validite), pas des
+        # colonnes : impossible à filtrer côté SQL sans dupliquer la logique
+        # métier. Le volume d'ayants droit reste modeste, on filtre donc en
+        # mémoire — en ne chargeant qu'une fois le paramétrage plutôt que
+        # via la propriété `limite_age_depassee` (qui le rechargerait à
+        # chaque ligne).
+        age_limite = Parametrage.charger().age_limite_enfant
+        resultat = []
+        for ayant_droit in queryset:
+            if age_min is not None and (ayant_droit.age is None or ayant_droit.age < age_min):
+                continue
+            if age_max is not None and (ayant_droit.age is None or ayant_droit.age > age_max):
+                continue
+            if limite_depassee and not (
+                ayant_droit.lien_parente == LienParente.ENFANT
+                and ayant_droit.age is not None
+                and ayant_droit.age >= age_limite
+            ):
+                continue
+            if justificatif_expire and not ayant_droit.est_expire:
+                continue
+            resultat.append(ayant_droit)
+        return resultat
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["filtre_lien"] = self.request.GET.get("lien", "")
+        contexte["filtre_statut"] = self.request.GET.get("statut", "")
+        contexte["filtre_age_min"] = self.request.GET.get("age_min", "")
+        contexte["filtre_age_max"] = self.request.GET.get("age_max", "")
+        contexte["filtre_limite_depassee"] = self.request.GET.get("limite_depassee") == "1"
+        contexte["filtre_justificatif_expire"] = self.request.GET.get("justificatif_expire") == "1"
+        contexte["liens"] = LienParente.choices
+        contexte["statuts_verification"] = StatutVerification.choices
+        return contexte
 
 
 class AyantDroitCreer(FormulaireBase, CreateView):
