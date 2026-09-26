@@ -8,7 +8,7 @@ from parametrage.models import Parametrage, TrancheQuota
 
 
 class LienParente(models.TextChoices):
-    CONJOINT = "CONJOINT", "Conjoint(e)"
+    CONJOINT = "CONJOINT", "Partenaire"
     ENFANT = "ENFANT", "Enfant"
     AUTRE = "AUTRE", "Autre"
 
