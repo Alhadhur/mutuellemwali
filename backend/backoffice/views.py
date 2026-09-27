@@ -19,7 +19,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
-from facturation.models import Facture, StatutFacture
+from facturation.models import MOIS, Facture, StatutFacture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import STATUTS_MANUELS, Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TarifPrestataire
@@ -703,6 +703,7 @@ class AyantDroitVerifier(AccesModification, View):
 class PrescriptionListe(ListeBase):
     model = Prescription
     titre = "Prescriptions"
+    template_name = "backoffice/prescription_liste.html"
     url_detail = "backoffice:prescription_detail"
     url_creation = "backoffice:prescription_creer"
     libelle_creation = "Saisir une prescription"
@@ -729,15 +730,39 @@ class PrescriptionListe(ListeBase):
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("agent__utilisateur", "prestataire", "ayant_droit", "nature")
+
         statut = self.request.GET.get("statut", "")
         if statut:
             queryset = queryset.filter(statut=statut)
+
+        prestataire = self.request.GET.get("prestataire", "")
+        if prestataire:
+            queryset = queryset.filter(prestataire_id=prestataire)
+
+        nature = self.request.GET.get("nature", "")
+        if nature:
+            queryset = queryset.filter(nature_id=nature)
+
+        date_min = self.request.GET.get("date_min", "")
+        if date_min:
+            queryset = queryset.filter(date_emission__gte=date_min)
+
+        date_max = self.request.GET.get("date_max", "")
+        if date_max:
+            queryset = queryset.filter(date_emission__lte=date_max)
+
         return queryset
 
     def get_context_data(self, **kwargs):
         contexte = super().get_context_data(**kwargs)
         contexte["filtre_statut"] = self.request.GET.get("statut", "")
+        contexte["filtre_prestataire"] = self.request.GET.get("prestataire", "")
+        contexte["filtre_nature"] = self.request.GET.get("nature", "")
+        contexte["filtre_date_min"] = self.request.GET.get("date_min", "")
+        contexte["filtre_date_max"] = self.request.GET.get("date_max", "")
         contexte["statuts"] = StatutPrescription.choices
+        contexte["prestataires"] = Prestataire.objects.order_by("nom")
+        contexte["natures"] = NatureSoin.objects.order_by("ordre")
         return contexte
 
 
@@ -940,6 +965,7 @@ class PrescriptionChangerStatut(AccesModification, View):
 class FactureListe(ListeBase):
     model = Facture
     titre = "Factures prestataires"
+    template_name = "backoffice/facture_liste.html"
     url_creation = "backoffice:facture_creer"
     libelle_creation = "Nouvelle facture"
     url_detail = "backoffice:facture_detail"
@@ -955,7 +981,39 @@ class FactureListe(ListeBase):
     )
 
     def get_queryset(self):
-        return super().get_queryset().select_related("prestataire")
+        queryset = super().get_queryset().select_related("prestataire")
+
+        statut = self.request.GET.get("statut", "")
+        if statut:
+            queryset = queryset.filter(statut=statut)
+
+        prestataire = self.request.GET.get("prestataire", "")
+        if prestataire:
+            queryset = queryset.filter(prestataire_id=prestataire)
+
+        mois = self.request.GET.get("mois", "")
+        if mois:
+            queryset = queryset.filter(mois=mois)
+
+        annee = self.request.GET.get("annee", "")
+        if annee:
+            queryset = queryset.filter(annee=annee)
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["filtre_statut"] = self.request.GET.get("statut", "")
+        contexte["filtre_prestataire"] = self.request.GET.get("prestataire", "")
+        contexte["filtre_mois"] = self.request.GET.get("mois", "")
+        contexte["filtre_annee"] = self.request.GET.get("annee", "")
+        contexte["statuts"] = StatutFacture.choices
+        contexte["prestataires"] = Prestataire.objects.order_by("nom")
+        contexte["mois_choix"] = MOIS
+        contexte["annees"] = (
+            Facture.objects.order_by("-annee").values_list("annee", flat=True).distinct()
+        )
+        return contexte
 
 
 class FactureDetail(AccesBackoffice, DetailView):

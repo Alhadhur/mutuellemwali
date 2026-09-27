@@ -205,6 +205,57 @@ class ListesTest(BaseBackoffice):
 
         self.assertNotContains(reponse, "ORD-1")
 
+    def test_les_prescriptions_se_filtrent_par_prestataire(self):
+        autre_prestataire = Prestataire.objects.create(
+            type_prestataire=TypePrestataire.PHARMACIE, nom="Autre Pharmacie", taux_prise_en_charge=80
+        )
+        Prescription.objects.create(
+            agent=self.agent,
+            prestataire=autre_prestataire,
+            numero_ordonnance="ORD-AUTRE",
+            montant_total=3000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"prestataire": self.prestataire.pk})
+
+        self.assertContains(reponse, "ORD-1")
+        self.assertNotContains(reponse, "ORD-AUTRE")
+
+    def test_les_prescriptions_se_filtrent_par_nature(self):
+        nature = NatureSoin.objects.get(libelle="Consultation")
+        self.prescription.nature = nature
+        self.prescription.save()
+        Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-SANS-NATURE",
+            montant_total=3000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"nature": nature.pk})
+
+        self.assertContains(reponse, "ORD-1")
+        self.assertNotContains(reponse, "ORD-SANS-NATURE")
+
+    def test_les_prescriptions_se_filtrent_par_periode(self):
+        Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-ANCIENNE",
+            montant_total=3000,
+            date_emission=date(2020, 1, 1),
+            justificatif="x.jpg",
+        )
+
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"date_min": date.today().isoformat()})
+
+        self.assertContains(reponse, "ORD-1")
+        self.assertNotContains(reponse, "ORD-ANCIENNE")
+
     def test_la_liste_des_prescriptions_distingue_agent_et_ayant_droit(self):
         ayant_droit = AyantDroit.objects.create(
             agent=self.agent,
@@ -596,6 +647,45 @@ class FactureSupprimerTest(BaseBackoffice):
 
         self.assertEqual(reponse.status_code, 403)
         self.assertTrue(Facture.objects.filter(pk=self.facture.pk).exists())
+
+
+class FactureListeFiltresTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def test_les_factures_se_filtrent_par_statut(self):
+        Facture.objects.create(
+            prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=1000,
+            statut=StatutFacture.VALIDEE,
+        )
+        Facture.objects.create(prestataire=self.prestataire, numero="F-2", mois=1, annee=2026, montant_total_declare=2000)
+
+        reponse = self.client.get(reverse("backoffice:factures"), {"statut": StatutFacture.VALIDEE})
+
+        self.assertContains(reponse, "F-1")
+        self.assertNotContains(reponse, "F-2")
+
+    def test_les_factures_se_filtrent_par_prestataire(self):
+        autre_prestataire = Prestataire.objects.create(
+            type_prestataire=TypePrestataire.PHARMACIE, nom="Autre Pharmacie", taux_prise_en_charge=80
+        )
+        Facture.objects.create(prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=1000)
+        Facture.objects.create(prestataire=autre_prestataire, numero="F-2", mois=1, annee=2026, montant_total_declare=2000)
+
+        reponse = self.client.get(reverse("backoffice:factures"), {"prestataire": self.prestataire.pk})
+
+        self.assertContains(reponse, "F-1")
+        self.assertNotContains(reponse, "F-2")
+
+    def test_les_factures_se_filtrent_par_mois_et_annee(self):
+        Facture.objects.create(prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=1000)
+        Facture.objects.create(prestataire=self.prestataire, numero="F-2", mois=2, annee=2026, montant_total_declare=2000)
+
+        reponse = self.client.get(reverse("backoffice:factures"), {"mois": "1", "annee": "2026"})
+
+        self.assertContains(reponse, "F-1")
+        self.assertNotContains(reponse, "F-2")
 
 
 class UtilisateurTest(BaseBackoffice):

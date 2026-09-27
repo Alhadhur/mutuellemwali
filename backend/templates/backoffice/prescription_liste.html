@@ -1,0 +1,28 @@
+{% extends "backoffice/liste.html" %}
+
+{% block filtres %}
+  <select name="statut">
+    <option value="">Tous les statuts</option>
+    {% for valeur, libelle in statuts %}
+      <option value="{{ valeur }}" {% if filtre_statut == valeur %}selected{% endif %}>{{ libelle }}</option>
+    {% endfor %}
+  </select>
+  <select name="prestataire">
+    <option value="">Tous les prestataires</option>
+    {% for prestataire in prestataires %}
+      <option value="{{ prestataire.pk }}" {% if filtre_prestataire == prestataire.pk|stringformat:"s" %}selected{% endif %}>
+        {{ prestataire.nom }}
+      </option>
+    {% endfor %}
+  </select>
+  <select name="nature">
+    <option value="">Toutes les natures</option>
+    {% for nature in natures %}
+      <option value="{{ nature.pk }}" {% if filtre_nature == nature.pk|stringformat:"s" %}selected{% endif %}>
+        {{ nature.libelle }}
+      </option>
+    {% endfor %}
+  </select>
+  <input type="date" name="date_min" value="{{ filtre_date_min }}" title="Émise à partir du">
+  <input type="date" name="date_max" value="{{ filtre_date_max }}" title="Émise jusqu'au">
+{% endblock %}

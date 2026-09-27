@@ -1,0 +1,30 @@
+{% extends "backoffice/liste.html" %}
+
+{% block filtres %}
+  <select name="statut">
+    <option value="">Tous les statuts</option>
+    {% for valeur, libelle in statuts %}
+      <option value="{{ valeur }}" {% if filtre_statut == valeur %}selected{% endif %}>{{ libelle }}</option>
+    {% endfor %}
+  </select>
+  <select name="prestataire">
+    <option value="">Tous les prestataires</option>
+    {% for prestataire in prestataires %}
+      <option value="{{ prestataire.pk }}" {% if filtre_prestataire == prestataire.pk|stringformat:"s" %}selected{% endif %}>
+        {{ prestataire.nom }}
+      </option>
+    {% endfor %}
+  </select>
+  <select name="mois">
+    <option value="">Tous les mois</option>
+    {% for valeur, libelle in mois_choix %}
+      <option value="{{ valeur }}" {% if filtre_mois == valeur|stringformat:"s" %}selected{% endif %}>{{ libelle }}</option>
+    {% endfor %}
+  </select>
+  <select name="annee">
+    <option value="">Toutes les années</option>
+    {% for annee in annees %}
+      <option value="{{ annee }}" {% if filtre_annee == annee|stringformat:"s" %}selected{% endif %}>{{ annee }}</option>
+    {% endfor %}
+  </select>
+{% endblock %}
