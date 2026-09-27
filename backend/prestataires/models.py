@@ -1,8 +1,15 @@
+import unicodedata
+
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from parametrage.models import NatureSoin
+
+
+def _normaliser(texte):
+    sans_accents = "".join(c for c in unicodedata.normalize("NFKD", texte or "") if not unicodedata.combining(c))
+    return sans_accents.strip().lower()
 
 
 class TypePrestataire(models.TextChoices):
@@ -99,6 +106,18 @@ class Prestataire(models.Model):
         complète des natures, pour ne pas bloquer un prestataire pas encore
         détaillé."""
         return NatureSoin.objects.filter(tarifs__prestataire=self, active=True).order_by("ordre")
+
+    def propose_nature(self, texte):
+        """Le texte libre porté par une ligne de facture correspond-il à une
+        nature réellement tarifée chez ce prestataire ? Un prestataire pas
+        encore détaillé (natures_proposees vide) n'a aucune restriction —
+        sinon tout serait signalé tant que ses tarifs par nature n'ont pas
+        été saisis."""
+        natures = self.natures_proposees()
+        if not natures:
+            return True
+        cible = _normaliser(texte)
+        return any(_normaliser(nature.libelle) == cible for nature in natures)
 
 
 class TarifPrestataire(models.Model):

@@ -40,6 +40,7 @@ class StatutLigne(models.TextChoices):
     ECART_TAUX = "ECART_TAUX", "Taux mal appliqué"
     SANS_PRESCRIPTION = "SANS_PRESCRIPTION", "Aucune prescription déclarée"
     AGENT_INCONNU = "AGENT_INCONNU", "Matricule inconnu"
+    NATURE_NON_COUVERTE = "NATURE_NON_COUVERTE", "Nature non couverte par ce prestataire"
 
 
 class Facture(models.Model):
@@ -130,23 +131,28 @@ class Facture(models.Model):
             ).exclude(pk__in=deja_prises)
 
             exacte = candidates.filter(montant_total=ligne.montant_soin).first()
-            if exacte:
-                ligne.prescription = exacte
-                deja_prises.add(exacte.pk)
+            approchante = exacte or candidates.first()
+
+            if approchante:
+                ligne.prescription = approchante
+                deja_prises.add(approchante.pk)
+            else:
+                ligne.prescription = None
+
+            if not self.prestataire.propose_nature(ligne.nature):
+                # Le prestataire a des tarifs détaillés mais aucun ne
+                # correspond à cette nature : il facture un soin qu'il n'est
+                # pas censé proposer — plus grave qu'un simple écart de
+                # montant ou de taux.
+                ligne.statut = StatutLigne.NATURE_NON_COUVERTE
+            elif exacte:
                 # Le coût du soin concorde : reste à vérifier que le
                 # prestataire ne réclame pas plus que son taux ne l'autorise.
-                ligne.statut = (
-                    StatutLigne.CONCORDANTE if ligne.ecart_taux == 0 else StatutLigne.ECART_TAUX
-                )
+                ligne.statut = StatutLigne.CONCORDANTE if ligne.ecart_taux == 0 else StatutLigne.ECART_TAUX
+            elif approchante:
+                ligne.statut = StatutLigne.ECART_MONTANT
             else:
-                approchante = candidates.first()
-                if approchante:
-                    ligne.prescription = approchante
-                    ligne.statut = StatutLigne.ECART_MONTANT
-                    deja_prises.add(approchante.pk)
-                else:
-                    ligne.prescription = None
-                    ligne.statut = StatutLigne.SANS_PRESCRIPTION
+                ligne.statut = StatutLigne.SANS_PRESCRIPTION
             ligne.save()
 
         self.statut = StatutFacture.RAPPROCHEE

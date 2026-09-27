@@ -54,7 +54,7 @@ class BaseFacturation(TestCase):
             montant_total_declare=total,
         )
 
-    def ligne(self, facture, jour, montant, matricule="A0001", reclame=None):
+    def ligne(self, facture, jour, montant, matricule="A0001", reclame=None, nature="Consultation"):
         """`montant` est le coût total du soin ; la part réclamée vaut par
         défaut ce que le taux du prestataire autorise."""
         return LigneFacture.objects.create(
@@ -62,7 +62,7 @@ class BaseFacturation(TestCase):
             date_soin=jour,
             matricule=matricule,
             nom_beneficiaire="Fatima Zahra",
-            nature="Consultation",
+            nature=nature,
             montant_soin=montant,
             montant_reclame=round(montant * 80 / 100) if reclame is None else reclame,
         )
@@ -227,6 +227,36 @@ class RapprochementTest(BaseFacturation):
         self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
         self.assertEqual(ligne.montant_reclame_attendu, 60000)
         self.assertEqual(ligne.ecart_taux, 0)
+
+    def test_une_nature_absente_des_tarifs_detailles_est_signalee(self):
+        """Un prestataire détaillé (au moins un tarif par nature) facture une
+        nature qu'il n'a jamais tarifée : il ne devrait pas la proposer."""
+        chirurgie = NatureSoin.objects.get(libelle="Chirurgie")
+        TarifPrestataire.objects.create(
+            prestataire=self.prestataire, nature_soin=chirurgie, taux_prise_en_charge=60
+        )
+        self.declarer(date(2026, 3, 5), 12000)
+        facture = self.facture()
+        # Le montant concorde exactement : sans le contrôle de nature, cette
+        # ligne ressortirait à tort comme concordante.
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000, nature="Hospitalisation")
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.NATURE_NON_COUVERTE)
+
+    def test_un_prestataire_non_detaille_n_est_jamais_signale_pour_sa_nature(self):
+        """Sans aucun tarif par nature, le prestataire n'est pas restreint :
+        n'importe quel intitulé de nature reste acceptable."""
+        self.declarer(date(2026, 3, 5), 12000)
+        facture = self.facture()
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000, nature="Chirurgie exotique")
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
 
 
 class ValidationFactureTest(BaseFacturation):

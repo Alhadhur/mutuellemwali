@@ -27,6 +27,7 @@ STATUTS_LIGNE_ANORMAUX = (
     StatutLigne.ECART_TAUX,
     StatutLigne.SANS_PRESCRIPTION,
     StatutLigne.AGENT_INCONNU,
+    StatutLigne.NATURE_NON_COUVERTE,
 )
 
 

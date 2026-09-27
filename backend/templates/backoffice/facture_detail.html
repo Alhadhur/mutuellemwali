@@ -108,6 +108,8 @@
               <span class="badge badge-danger">Aucune prescription</span>
             {% elif ligne.statut == 'AGENT_INCONNU' %}
               <span class="badge badge-danger">Matricule inconnu</span>
+            {% elif ligne.statut == 'NATURE_NON_COUVERTE' %}
+              <span class="badge badge-danger">Nature non couverte</span>
             {% else %}
               <span class="badge badge-muted">À rapprocher</span>
             {% endif %}
