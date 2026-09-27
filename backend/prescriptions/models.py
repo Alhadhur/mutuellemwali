@@ -86,6 +86,15 @@ class Prescription(models.Model):
     def beneficiaire(self):
         return self.ayant_droit if self.ayant_droit_id else self.agent
 
+    @property
+    def nom_beneficiaire(self):
+        """Nom complet du bénéficiaire réel, indépendant du `__str__` de
+        l'agent ou de l'ayant droit (qui portent d'autres informations) —
+        sert à comparer ce nom à celui écrit sur une facture prestataire."""
+        if self.ayant_droit_id:
+            return f"{self.ayant_droit.prenom} {self.ayant_droit.nom}"
+        return self.agent.utilisateur.get_full_name()
+
     def detecter_doublons(self):
         """Retourne le queryset des prescriptions existantes qui rendent
         cette prescription suspecte : même agent, même prestataire, et

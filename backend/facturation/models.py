@@ -10,6 +10,7 @@ d'autre ne révèle —
   prestataire ne réclame pas, cas typique de la fausse ordonnance ;
 * un **écart de montant** entre ce qui est déclaré et ce qui est facturé.
 """
+import unicodedata
 from datetime import date
 
 from django.conf import settings
@@ -18,6 +19,15 @@ from django.utils import timezone
 
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire
+
+
+def _mots_normalises(texte):
+    """Compare deux noms par leur ensemble de mots, insensible aux accents, à
+    la casse et à l'ordre (« Nom Prénom » vs « Prénom Nom ») — volontairement
+    tolérant pour ne pas cribler l'écran d'anomalies sur une simple
+    inversion plutôt qu'un bénéficiaire réellement différent."""
+    sans_accents = "".join(c for c in unicodedata.normalize("NFKD", texte or "") if not unicodedata.combining(c))
+    return sorted(sans_accents.lower().split())
 
 MOIS = [
     (1, "Janvier"), (2, "Février"), (3, "Mars"), (4, "Avril"),
@@ -41,6 +51,7 @@ class StatutLigne(models.TextChoices):
     SANS_PRESCRIPTION = "SANS_PRESCRIPTION", "Aucune prescription déclarée"
     AGENT_INCONNU = "AGENT_INCONNU", "Matricule inconnu"
     NATURE_NON_COUVERTE = "NATURE_NON_COUVERTE", "Nature non couverte par ce prestataire"
+    BENEFICIAIRE_DIFFERENT = "BENEFICIAIRE_DIFFERENT", "Bénéficiaire différent de la prescription"
 
 
 class Facture(models.Model):
@@ -145,6 +156,11 @@ class Facture(models.Model):
                 # pas censé proposer — plus grave qu'un simple écart de
                 # montant ou de taux.
                 ligne.statut = StatutLigne.NATURE_NON_COUVERTE
+            elif not ligne.beneficiaire_correspond():
+                # Matricule, date et montant concordent, mais le nom écrit
+                # par le prestataire ne désigne pas le même bénéficiaire :
+                # potentiellement le mauvais ayant droit, ou pire.
+                ligne.statut = StatutLigne.BENEFICIAIRE_DIFFERENT
             elif exacte:
                 # Le coût du soin concorde : reste à vérifier que le
                 # prestataire ne réclame pas plus que son taux ne l'autorise.
@@ -217,7 +233,7 @@ class LigneFacture(models.Model):
     prescription = models.ForeignKey(
         Prescription, on_delete=models.SET_NULL, null=True, blank=True, related_name="lignes_facture"
     )
-    statut = models.CharField(max_length=20, choices=StatutLigne.choices, default=StatutLigne.A_RAPPROCHER)
+    statut = models.CharField(max_length=30, choices=StatutLigne.choices, default=StatutLigne.A_RAPPROCHER)
     commentaire = models.TextField(blank=True)
 
     class Meta:
@@ -253,3 +269,12 @@ class LigneFacture(models.Model):
     @property
     def ecart_taux(self):
         return self.montant_reclame - self.montant_reclame_attendu
+
+    def beneficiaire_correspond(self):
+        """Le nom écrit par le prestataire désigne-t-il bien le bénéficiaire
+        de la prescription rapprochée ? Sans prescription liée, rien à
+        comparer — le rapprochement ne connaît alors aucun bénéficiaire de
+        référence."""
+        if not self.prescription_id:
+            return True
+        return _mots_normalises(self.nom_beneficiaire) == _mots_normalises(self.prescription.nom_beneficiaire)

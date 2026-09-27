@@ -110,6 +110,8 @@
               <span class="badge badge-danger">Matricule inconnu</span>
             {% elif ligne.statut == 'NATURE_NON_COUVERTE' %}
               <span class="badge badge-danger">Nature non couverte</span>
+            {% elif ligne.statut == 'BENEFICIAIRE_DIFFERENT' %}
+              <span class="badge badge-danger">Bénéficiaire : {{ ligne.prescription.nom_beneficiaire }} attendu</span>
             {% else %}
               <span class="badge badge-muted">À rapprocher</span>
             {% endif %}

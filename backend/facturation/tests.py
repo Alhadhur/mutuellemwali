@@ -8,7 +8,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase
 
 from accounts.models import Role, Utilisateur
-from beneficiaires.models import Agent
+from beneficiaires.models import Agent, AyantDroit, LienParente, TypeJustificatif
 from facturation.models import Facture, LigneFacture, StatutFacture, StatutLigne
 from parametrage.models import NatureSoin
 from prescriptions.models import Prescription, StatutPrescription
@@ -54,14 +54,15 @@ class BaseFacturation(TestCase):
             montant_total_declare=total,
         )
 
-    def ligne(self, facture, jour, montant, matricule="A0001", reclame=None, nature="Consultation"):
+    def ligne(self, facture, jour, montant, matricule="A0001", reclame=None, nature="Consultation",
+              beneficiaire="Fatima Zahra"):
         """`montant` est le coût total du soin ; la part réclamée vaut par
         défaut ce que le taux du prestataire autorise."""
         return LigneFacture.objects.create(
             facture=facture,
             date_soin=jour,
             matricule=matricule,
-            nom_beneficiaire="Fatima Zahra",
+            nom_beneficiaire=beneficiaire,
             nature=nature,
             montant_soin=montant,
             montant_reclame=round(montant * 80 / 100) if reclame is None else reclame,
@@ -252,6 +253,58 @@ class RapprochementTest(BaseFacturation):
         self.declarer(date(2026, 3, 5), 12000)
         facture = self.facture()
         ligne = self.ligne(facture, date(2026, 3, 5), 12000, nature="Chirurgie exotique")
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
+
+    def test_un_beneficiaire_different_est_signale(self):
+        """Matricule, date et montant concordent, mais le nom facturé ne
+        désigne pas le même bénéficiaire que la prescription."""
+        self.declarer(date(2026, 3, 5), 12000)
+        facture = self.facture()
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000, beneficiaire="Ahmed Ali")
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.BENEFICIAIRE_DIFFERENT)
+
+    def test_le_nom_facture_dans_un_ordre_different_n_est_pas_signale(self):
+        """« Zahra Fatima » plutôt que « Fatima Zahra » : une simple
+        inversion nom/prénom ne doit pas être un faux positif."""
+        self.declarer(date(2026, 3, 5), 12000)
+        facture = self.facture()
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000, beneficiaire="Zahra Fatima")
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
+
+    def test_le_beneficiaire_attendu_est_celui_de_l_ayant_droit_rapproche(self):
+        """Quand la prescription concerne un ayant droit, c'est son nom à lui
+        qui fait foi, pas celui de l'agent porteur du quota."""
+        ayant_droit = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Amine",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+        )
+        Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=ayant_droit,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-ENFANT",
+            montant_total=12000,
+            date_emission=date(2026, 3, 5),
+            justificatif="x.jpg",
+        )
+        facture = self.facture()
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000, beneficiaire="Amine Zahra")
 
         facture.rapprocher()
 
