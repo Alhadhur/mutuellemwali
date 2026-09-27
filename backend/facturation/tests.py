@@ -311,6 +311,19 @@ class RapprochementTest(BaseFacturation):
         ligne.refresh_from_db()
         self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
 
+    def test_un_nom_de_famille_seul_n_est_pas_signale(self):
+        """En pratique, un prestataire n'écrit souvent que le nom ou le
+        prénom, jamais les deux : ça ne doit pas être traité comme un
+        bénéficiaire différent."""
+        self.declarer(date(2026, 3, 5), 12000)
+        facture = self.facture()
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000, beneficiaire="Zahra")
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
+
 
 class ValidationFactureTest(BaseFacturation):
     def test_valider_ne_confirme_que_les_lignes_concordantes(self):

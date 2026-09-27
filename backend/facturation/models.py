@@ -22,12 +22,11 @@ from prestataires.models import Prestataire
 
 
 def _mots_normalises(texte):
-    """Compare deux noms par leur ensemble de mots, insensible aux accents, à
-    la casse et à l'ordre (« Nom Prénom » vs « Prénom Nom ») — volontairement
-    tolérant pour ne pas cribler l'écran d'anomalies sur une simple
-    inversion plutôt qu'un bénéficiaire réellement différent."""
+    """Ensemble des mots d'un nom, insensible aux accents et à la casse —
+    sert à comparer deux noms indépendamment de l'ordre (« Nom Prénom » vs
+    « Prénom Nom »)."""
     sans_accents = "".join(c for c in unicodedata.normalize("NFKD", texte or "") if not unicodedata.combining(c))
-    return sorted(sans_accents.lower().split())
+    return set(sans_accents.lower().split())
 
 MOIS = [
     (1, "Janvier"), (2, "Février"), (3, "Mars"), (4, "Avril"),
@@ -274,7 +273,18 @@ class LigneFacture(models.Model):
         """Le nom écrit par le prestataire désigne-t-il bien le bénéficiaire
         de la prescription rapprochée ? Sans prescription liée, rien à
         comparer — le rapprochement ne connaît alors aucun bénéficiaire de
-        référence."""
+        référence.
+
+        En pratique, les prestataires n'écrivent souvent que le nom **ou**
+        le prénom, jamais les deux : exiger une égalité stricte des mots
+        signalerait presque toutes les lignes en « faux » écart. On accepte
+        donc qu'un des deux noms soit un sous-ensemble de l'autre (tous ses
+        mots se retrouvent dans l'autre nom) — un nom qui introduit un mot
+        absent de l'autre reste, lui, un vrai désaccord."""
         if not self.prescription_id:
             return True
-        return _mots_normalises(self.nom_beneficiaire) == _mots_normalises(self.prescription.nom_beneficiaire)
+        mots_factures = _mots_normalises(self.nom_beneficiaire)
+        mots_attendus = _mots_normalises(self.prescription.nom_beneficiaire)
+        if not mots_factures or not mots_attendus:
+            return True
+        return mots_factures <= mots_attendus or mots_attendus <= mots_factures
