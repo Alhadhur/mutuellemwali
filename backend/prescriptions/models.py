@@ -123,6 +123,13 @@ class Prescription(models.Model):
         if self.ayant_droit_id and self.ayant_droit.agent_id != self.agent_id:
             raise ValidationError("L'ayant droit sélectionné n'appartient pas à cet agent.")
 
+    @property
+    def ayant_droit_hors_couverture(self):
+        """Un enfant a beau exister dans le dossier, il ne coûte plus rien à
+        la mutuelle une fois l'âge limite dépassé — comme un prestataire
+        suspendu, ça ne doit ni se rembourser ni passer inaperçu."""
+        return bool(self.ayant_droit_id and self.ayant_droit.limite_age_depassee)
+
     def save(self, *args, detecter=True, **kwargs):
         """`detecter=False` charge la prescription telle quelle : réservé à
         l'import d'un historique déjà arbitré, dont les statuts et montants
@@ -134,7 +141,8 @@ class Prescription(models.Model):
             ancien_statut = Prescription.objects.get(pk=self.pk).statut
 
         if detecter:
-            self.montant_rembourse = self.calculer_montant_rembourse() if self.prestataire.est_actif else 0
+            eligible = self.prestataire.est_actif and not self.ayant_droit_hors_couverture
+            self.montant_rembourse = self.calculer_montant_rembourse() if eligible else 0
 
         if est_nouvelle and detecter:
             doublons = self.detecter_doublons()
@@ -145,6 +153,12 @@ class Prescription(models.Model):
                     "Doublon potentiel détecté avec la/les prescription(s) portant le(s) "
                     f"numéro(s) {numeros} (même agent, même prestataire, numéro ou montant "
                     f"identique à ±{FENETRE_DOUBLON_JOURS} jours)."
+                )
+            if self.ayant_droit_hors_couverture:
+                self.statut = StatutPrescription.EN_CONTROLE
+                self.motif_signalement = (self.motif_signalement + " " if self.motif_signalement else "") + (
+                    f"{self.ayant_droit.prenom} {self.ayant_droit.nom} a dépassé l'âge limite de couverture "
+                    f"({self.ayant_droit.age_limite} ans) : non éligible au remboursement."
                 )
             if not self.prestataire.est_actif:
                 self.statut = StatutPrescription.EN_CONTROLE

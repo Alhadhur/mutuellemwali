@@ -9,7 +9,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from accounts.models import Role, Utilisateur
-from beneficiaires.models import Agent
+from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
 from parametrage.models import NatureSoin
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, TypePrestataire
@@ -211,3 +211,73 @@ class SaisieManuelleTest(BasePrescriptions):
         saisie = Prescription.objects.filter(numero_ordonnance="ORD-PAPIER-1").latest("date_creation")
         self.assertEqual(saisie.statut, StatutPrescription.EN_CONTROLE)
         self.assertIn("Doublon", saisie.motif_signalement)
+
+
+class AyantDroitHorsCouvertureTest(BasePrescriptions):
+    """Un enfant qui a dépassé l'âge limite de couverture ne coûte plus rien
+    à la mutuelle : une prescription qui lui est quand même soumise doit être
+    bloquée (remboursement nul) et signalée, pas remboursée sans bruit."""
+
+    def _ayant_droit(self, annees):
+        return AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Enfant",
+            date_naissance=date.today().replace(year=date.today().year - annees),
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
+
+    def test_une_prescription_pour_un_enfant_trop_age_n_est_pas_remboursee(self):
+        ayant_droit = self._ayant_droit(20)
+
+        prescription = Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=ayant_droit,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-1",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        self.assertEqual(prescription.montant_rembourse, 0)
+        self.assertEqual(prescription.statut, StatutPrescription.EN_CONTROLE)
+        self.assertIn("âge limite", prescription.motif_signalement)
+
+    def test_une_prescription_pour_un_enfant_dans_la_limite_reste_normale(self):
+        ayant_droit = self._ayant_droit(10)
+
+        prescription = Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=ayant_droit,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-2",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        self.assertEqual(prescription.montant_rembourse, 8000)
+        self.assertEqual(prescription.statut, StatutPrescription.SOUMISE)
+
+    def test_reassigner_une_prescription_a_un_enfant_trop_age_annule_le_remboursement(self):
+        """Le blocage s'applique aussi à une correction après coup (voir
+        PrescriptionModifier), pas seulement à la saisie initiale."""
+        ayant_droit = self._ayant_droit(20)
+        prescription = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-3",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+        self.assertEqual(prescription.montant_rembourse, 8000)
+
+        prescription.ayant_droit = ayant_droit
+        prescription.save()
+
+        self.assertEqual(prescription.montant_rembourse, 0)
