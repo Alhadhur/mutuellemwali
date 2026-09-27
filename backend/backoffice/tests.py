@@ -205,6 +205,49 @@ class ListesTest(BaseBackoffice):
 
         self.assertNotContains(reponse, "ORD-1")
 
+    def test_la_liste_des_prescriptions_distingue_agent_et_ayant_droit(self):
+        ayant_droit = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Fils",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+        )
+        Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=ayant_droit,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-ENFANT",
+            montant_total=5000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        reponse = self.client.get(reverse("backoffice:prescriptions"))
+
+        self.assertContains(reponse, self.agent.matricule)
+        self.assertContains(reponse, "Fils Zahra (Enfant)")
+
+    def test_la_fiche_prescription_affiche_l_ayant_droit_en_plus_de_l_agent(self):
+        ayant_droit = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Fils",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+        )
+        self.prescription.ayant_droit = ayant_droit
+        self.prescription.save()
+
+        reponse = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+
+        self.assertContains(reponse, self.agent.matricule)
+        self.assertContains(reponse, "Fils")
+        self.assertContains(reponse, "Zahra")
+        self.assertContains(reponse, "Enfant")
+
 
 class RechercheAgentTest(BaseBackoffice):
     """Les écrans de saisie ne peuvent pas afficher deux mille agents dans une

@@ -710,7 +710,15 @@ class PrescriptionListe(ListeBase):
     champs_recherche = ("numero_ordonnance", "agent__utilisateur__matricule", "prestataire__nom")
     colonnes = (
         ("N° ordonnance", "numero_ordonnance"),
-        ("Bénéficiaire", lambda o: str(o.beneficiaire())),
+        ("Agent", lambda o: f"{o.agent.matricule} — {o.agent.utilisateur.get_full_name()}"),
+        (
+            "Ayant droit",
+            lambda o: (
+                f"{o.ayant_droit.prenom} {o.ayant_droit.nom} ({o.ayant_droit.get_lien_parente_display()})"
+                if o.ayant_droit_id
+                else "—"
+            ),
+        ),
         ("Prestataire", lambda o: o.prestataire.nom),
         ("Nature", lambda o: o.nature.libelle if o.nature_id else "—"),
         ("Montant", lambda o: f"{o.montant_total} KMF"),

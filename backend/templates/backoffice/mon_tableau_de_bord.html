@@ -53,7 +53,9 @@
       {% for p in prescriptions %}
       <tr>
         <td>{{ p.numero_ordonnance }}</td>
-        <td>{{ p.beneficiaire }}</td>
+        <td>
+          {% if p.ayant_droit %}{{ p.ayant_droit.prenom }} {{ p.ayant_droit.nom }} ({{ p.ayant_droit.get_lien_parente_display }}){% else %}Moi-même{% endif %}
+        </td>
         <td>{{ p.prestataire.nom }}</td>
         <td>{{ p.montant_total }} KMF</td>
         <td>{{ p.montant_rembourse }} KMF</td>

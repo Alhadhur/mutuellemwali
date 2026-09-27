@@ -14,8 +14,18 @@
 <section>
   <h2>Détail</h2>
   <div class="fiche">
-    <div><span>Bénéficiaire</span><strong>{{ prescription.beneficiaire }}</strong></div>
-    <div><span>Agent</span><strong>{{ prescription.agent.matricule }}</strong></div>
+    <div><span>Agent</span><strong>{{ prescription.agent.matricule }} — {{ prescription.agent.utilisateur.get_full_name }}</strong></div>
+    <div>
+      <span>Ayant droit</span>
+      <strong>
+        {% if prescription.ayant_droit %}
+          {{ prescription.ayant_droit.prenom }} {{ prescription.ayant_droit.nom }}
+          ({{ prescription.ayant_droit.get_lien_parente_display }})
+        {% else %}
+          — (l'agent lui-même)
+        {% endif %}
+      </strong>
+    </div>
     <div><span>Prestataire</span><strong>{{ prescription.prestataire.nom }}</strong></div>
     <div><span>Nature du soin</span><strong>{{ prescription.nature.libelle|default:"—" }}</strong></div>
     <div><span>Montant total</span><strong>{{ prescription.montant_total }} KMF</strong></div>
