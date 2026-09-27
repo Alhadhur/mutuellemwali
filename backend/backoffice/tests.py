@@ -349,6 +349,57 @@ class ChangementStatutTest(BaseBackoffice):
         self.assertEqual(self.prescription.statut, StatutPrescription.SOUMISE)
 
 
+class PrescriptionModifierTest(BaseBackoffice):
+    """Une erreur de saisie doit pouvoir être corrigée tant que la
+    prescription n'a pas encore été décidée — comme pour la suppression."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.nature = NatureSoin.objects.get(libelle="Consultation")
+
+    def _donnees(self, **extra):
+        donnees = {
+            "agent": self.agent.pk,
+            "prestataire": self.prestataire.pk,
+            "nature": self.nature.pk,
+            "numero_ordonnance": "ORD-1-CORRIGE",
+            "montant_total": "15000",
+            "date_emission": "2026-01-05",
+        }
+        donnees.update(extra)
+        return donnees
+
+    def test_une_prescription_soumise_se_modifie(self):
+        reponse = self.client.post(
+            reverse("backoffice:prescription_modifier", args=[self.prescription.pk]), self._donnees()
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+        self.prescription.refresh_from_db()
+        self.assertEqual(self.prescription.numero_ordonnance, "ORD-1-CORRIGE")
+        self.assertEqual(self.prescription.montant_total, 15000)
+        self.assertEqual(self.prescription.montant_rembourse, 12000)
+
+    def test_une_prescription_validee_ne_se_modifie_pas(self):
+        self.prescription.changer_statut(StatutPrescription.VALIDEE, utilisateur=self.rh)
+
+        reponse = self.client.post(
+            reverse("backoffice:prescription_modifier", args=[self.prescription.pk]), self._donnees()
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+        self.prescription.refresh_from_db()
+        self.assertEqual(self.prescription.numero_ordonnance, "ORD-1")
+
+    def test_la_direction_ne_peut_pas_ouvrir_le_formulaire(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.get(reverse("backoffice:prescription_modifier", args=[self.prescription.pk]))
+
+        self.assertEqual(reponse.status_code, 403)
+
+
 class AyantDroitTest(BaseBackoffice):
     def setUp(self):
         super().setUp()

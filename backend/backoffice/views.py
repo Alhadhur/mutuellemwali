@@ -798,6 +798,40 @@ class PrescriptionCreer(FormulaireBase, CreateView):
         return reverse("backoffice:prescription_detail", args=[self.object.pk])
 
 
+class PrescriptionModifier(FormulaireBase, UpdateView):
+    """Correction d'une erreur de saisie (agent, montant, date, nature…),
+    avant décision. Réservée aux prescriptions pas encore validées ou
+    rejetées, comme la suppression : une décision déjà prise doit rester
+    tracée sur les données qui l'ont motivée, pas corrigée après coup."""
+
+    model = Prescription
+    form_class = forms.PrescriptionForm
+    template_name = "backoffice/prescription_form.html"
+    titre = "Modifier la prescription"
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.statut in STATUTS_MANUELS:
+            return self._refuser()
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.statut in STATUTS_MANUELS:
+            return self._refuser()
+        return super().post(request, *args, **kwargs)
+
+    def _refuser(self):
+        messages.error(
+            self.request,
+            "Impossible de modifier une prescription déjà validée ou rejetée : cette décision doit rester tracée.",
+        )
+        return redirect("backoffice:prescription_detail", pk=self.object.pk)
+
+    def get_success_url(self):
+        return reverse("backoffice:prescription_detail", args=[self.object.pk])
+
+
 class PrescriptionDetail(AccesBackoffice, DetailView):
     model = Prescription
     template_name = "backoffice/prescription_detail.html"

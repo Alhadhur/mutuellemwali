@@ -37,6 +37,7 @@ urlpatterns = [
     path("recherche/agents/", views.RechercheAgents.as_view(), name="recherche_agents"),
     path("recherche/agents/<int:pk>/ayants-droit/", views.AyantsDroitDeLAgent.as_view(), name="recherche_ayants_droit"),
     path("prescriptions/<int:pk>/", views.PrescriptionDetail.as_view(), name="prescription_detail"),
+    path("prescriptions/<int:pk>/modifier/", views.PrescriptionModifier.as_view(), name="prescription_modifier"),
     path("prescriptions/<int:pk>/statut/", views.PrescriptionChangerStatut.as_view(), name="prescription_statut"),
     path("prescriptions/<int:pk>/supprimer/", views.PrescriptionSupprimer.as_view(), name="prescription_supprimer"),
     path("prescriptions/importer/", views.PrescriptionImport.as_view(), name="prescription_import"),
