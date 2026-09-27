@@ -123,7 +123,27 @@
       {% endfor %}
     </table>
   {% else %}
-    <div class="empty">Aucune ligne. Importez le fichier du prestataire avec <code>manage.py importer_facture</code>.</div>
+    <div class="empty">
+      Aucune ligne. Cette facture a été créée sans détail : supprimez-la puis ressaisissez-la depuis
+      <a href="{% url 'backoffice:facture_import' %}">Importer une facture</a>, qui charge l'en-tête, les lignes et
+      lance le rapprochement en une seule fois.
+    </div>
   {% endif %}
 </section>
+
+{% if peut_modifier and peut_supprimer %}
+  <section>
+    <h2>Zone de suppression</h2>
+    <div style="padding:18px;">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Réservé aux factures pas encore validées : une fois validée, la trace doit rester.
+      </p>
+      <form method="post" action="{% url 'backoffice:facture_supprimer' facture.pk %}"
+            onsubmit="return confirm('Supprimer définitivement la facture {{ facture.numero|escapejs }} ? Cette action est irréversible.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Supprimer</button>
+      </form>
+    </div>
+  </section>
+{% endif %}
 {% endblock %}

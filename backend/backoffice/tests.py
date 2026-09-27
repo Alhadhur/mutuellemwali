@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
-from facturation.models import Facture, StatutLigne
+from facturation.models import Facture, StatutFacture, StatutLigne
 from parametrage.models import NatureSoin, Parametrage
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TypePrestataire
@@ -470,6 +470,38 @@ class PrestataireTest(BaseBackoffice):
         self.client.post(url)
         self.prestataire.refresh_from_db()
         self.assertEqual(self.prestataire.statut, StatutPrestataire.ACTIF)
+
+
+class FactureSupprimerTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.facture = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=1000
+        )
+
+    def test_une_facture_non_validee_se_supprime(self):
+        reponse = self.client.post(reverse("backoffice:facture_supprimer", args=[self.facture.pk]))
+
+        self.assertRedirects(reponse, reverse("backoffice:factures"))
+        self.assertFalse(Facture.objects.filter(pk=self.facture.pk).exists())
+
+    def test_une_facture_validee_ne_se_supprime_pas(self):
+        self.facture.statut = StatutFacture.VALIDEE
+        self.facture.save()
+
+        reponse = self.client.post(reverse("backoffice:facture_supprimer", args=[self.facture.pk]))
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.assertTrue(Facture.objects.filter(pk=self.facture.pk).exists())
+
+    def test_la_direction_ne_peut_pas_supprimer(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.post(reverse("backoffice:facture_supprimer", args=[self.facture.pk]))
+
+        self.assertEqual(reponse.status_code, 403)
+        self.assertTrue(Facture.objects.filter(pk=self.facture.pk).exists())
 
 
 class UtilisateurTest(BaseBackoffice):

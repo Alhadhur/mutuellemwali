@@ -48,6 +48,7 @@ urlpatterns = [
     path("factures/<int:pk>/rapprocher/", views.FactureRapprocher.as_view(), name="facture_rapprocher"),
     path("factures/<int:pk>/valider/", views.FactureValider.as_view(), name="facture_valider"),
     path("factures/<int:pk>/contester/", views.FactureContester.as_view(), name="facture_contester"),
+    path("factures/<int:pk>/supprimer/", views.FactureSupprimer.as_view(), name="facture_supprimer"),
 
     path("prestataires/", views.PrestataireListe.as_view(), name="prestataires"),
     path("prestataires/nouveau/", views.PrestataireCreer.as_view(), name="prestataire_creer"),

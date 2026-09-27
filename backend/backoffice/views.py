@@ -918,6 +918,7 @@ class FactureDetail(AccesBackoffice, DetailView):
         contexte["non_facturees"] = self.object.prescriptions_non_facturees()
         contexte["synthese"] = self.object.synthese()
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        contexte["peut_supprimer"] = self.object.statut != StatutFacture.VALIDEE
         return contexte
 
 
@@ -1091,6 +1092,27 @@ class FactureContester(AccesModification, View):
         facture.save()
         messages.success(request, f"Facture {facture.numero} marquée comme contestée.")
         return redirect("backoffice:facture_detail", pk=pk)
+
+
+class FactureSupprimer(AccesModification, View):
+    """Suppression réservée aux factures pas encore validées : une fois
+    validée, elle a déjà fait passer des prescriptions en « Validée » — cette
+    décision doit rester tracée plutôt que d'être effacée avec la facture qui
+    l'a justifiée."""
+
+    def post(self, request, pk):
+        facture = get_object_or_404(Facture, pk=pk)
+        if facture.statut == StatutFacture.VALIDEE:
+            messages.error(
+                request,
+                "Impossible de supprimer une facture déjà validée : cette décision doit rester tracée.",
+            )
+            return redirect("backoffice:facture_detail", pk=pk)
+
+        numero = facture.numero
+        facture.delete()
+        messages.success(request, f"Facture {numero} supprimée.")
+        return redirect("backoffice:factures")
 
 
 # --- Prestataires ---------------------------------------------------------
