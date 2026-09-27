@@ -187,7 +187,16 @@ class ImportCSVBase(AccesModification, TemplateView):
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
 
-        contenu = request.FILES["fichier"].read().decode("utf-8-sig")
+        contenu = imports.decoder_fichier(request.FILES["fichier"].read())
+        if contenu is None:
+            rapport = {
+                "crees": 0,
+                "maj": 0,
+                "erreurs": [(0, "fichier illisible : encodage non reconnu (attendu UTF-8 ou Windows-1252)")],
+                "apercu": [],
+            }
+            return self.render_to_response(self.get_context_data(rapport=rapport))
+
         rapport = imports.executer(
             contenu, self.colonnes_attendues, self.importer_ligne, ecrire=False, alias=self.alias
         )
@@ -1006,7 +1015,14 @@ class FactureImport(AccesModification, TemplateView):
             return self.render_to_response(self.get_context_data(form=form))
 
         donnees = form.cleaned_data
-        contenu = request.FILES["fichier_csv"].read().decode("utf-8-sig")
+        contenu = imports.decoder_fichier(request.FILES["fichier_csv"].read())
+        if contenu is None:
+            rapport = {
+                "erreurs": [(0, "fichier illisible : encodage non reconnu (attendu UTF-8 ou Windows-1252)")],
+                "lignes_lues": 0,
+            }
+            return self.render_to_response(self.get_context_data(rapport=rapport))
+
         lignes = imports.lire_csv(contenu)
 
         erreurs = []

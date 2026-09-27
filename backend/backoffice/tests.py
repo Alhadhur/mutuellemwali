@@ -13,8 +13,8 @@ from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TypePrestataire
 
 
-def fichier_csv(contenu, nom="fichier.csv"):
-    return SimpleUploadedFile(nom, contenu.encode("utf-8"), content_type="text/csv")
+def fichier_csv(contenu, nom="fichier.csv", encodage="utf-8"):
+    return SimpleUploadedFile(nom, contenu.encode(encodage), content_type="text/csv")
 
 
 class BaseBackoffice(TestCase):
@@ -698,6 +698,30 @@ class ImportsWebTest(BaseBackoffice):
         self.assertEqual(utilisateur.region, "Moheli")
         self.assertTrue(utilisateur.is_active)
 
+    def test_import_utilisateurs_accepte_un_fichier_excel_en_windows_1252(self):
+        """Excel en français, sur Windows, enregistre parfois le CSV en
+        Windows-1252 plutôt qu'en UTF-8 : un « é » y casserait sinon la
+        lecture avec une erreur 500 illisible."""
+        contenu = "Matricule;Nom;Prénom\n157;RAMADANE;SAID MLIMI\n"
+        reponse = self.client.post(
+            reverse("backoffice:utilisateur_import"), {"fichier": fichier_csv(contenu, encodage="cp1252")}
+        )
+
+        self.assertEqual(reponse.status_code, 200)
+        self.client.post(reverse("backoffice:utilisateur_import"), {"confirmer": "1"})
+
+        self.assertTrue(Utilisateur.objects.filter(matricule="157").exists())
+
+    def test_import_utilisateurs_signale_un_encodage_illisible_sans_lever_d_erreur(self):
+        # 0x81 n'est un octet valide ni en UTF-8 ni en Windows-1252.
+        reponse = self.client.post(
+            reverse("backoffice:utilisateur_import"),
+            {"fichier": SimpleUploadedFile("fichier.csv", b"Matricule\x81;Nom\n158;X\n", content_type="text/csv")},
+        )
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, "encodage non reconnu")
+
     def test_import_ayants_droit_reconnait_les_en_tetes_de_l_export(self):
         contenu = (
             "Agent;Nom;Prénom;Date de naissance;lien_parente;Type de justificatif;"
@@ -756,7 +780,7 @@ class ImportsWebTest(BaseBackoffice):
 
     # --- Factures --------------------------------------------------------
 
-    def _donnees_facture(self, numero, contenu):
+    def _donnees_facture(self, numero, contenu, encodage="utf-8"):
         return {
             "prestataire": self.prestataire.pk,
             "numero": numero,
@@ -764,7 +788,7 @@ class ImportsWebTest(BaseBackoffice):
             "annee": str(self.prescription.date_emission.year),
             "montant_total_declare": "8000",
             "montant_colonne": "total",
-            "fichier_csv": fichier_csv(contenu),
+            "fichier_csv": fichier_csv(contenu, encodage=encodage),
         }
 
     def test_import_facture_apercu_signale_une_date_illisible_sans_rien_ecrire(self):
@@ -801,3 +825,15 @@ class ImportsWebTest(BaseBackoffice):
 
         self.assertContains(reponse, "déjà enregistrée")
         self.assertEqual(Facture.objects.filter(numero="F-1").count(), 1)
+
+    def test_import_facture_accepte_un_fichier_excel_en_windows_1252(self):
+        jour = self.prescription.date_emission.isoformat()
+        contenu = f"date;matricule;beneficiaire;nature;montant\n{jour};A0001;Fatima Zahra;Consultation;10000\n"
+        reponse = self.client.post(
+            reverse("backoffice:facture_import"), self._donnees_facture("F-1", contenu, encodage="cp1252")
+        )
+
+        self.assertNotContains(reponse, "encodage non reconnu")
+        self.client.post(reverse("backoffice:facture_import"), {"confirmer": "1"})
+
+        self.assertTrue(Facture.objects.filter(numero="F-1").exists())

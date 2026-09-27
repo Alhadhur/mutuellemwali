@@ -20,6 +20,21 @@ from datetime import datetime
 from django.db import transaction
 
 FORMATS_DATE = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d")
+ENCODAGES_ACCEPTES = ("utf-8-sig", "cp1252")
+
+
+def decoder_fichier(contenu_brut):
+    """Un CSV Excel en français n'est pas toujours en UTF-8 : « Enregistrer
+    sous > CSV » sur Windows produit du Windows-1252 (cp1252), qui casse la
+    lecture UTF-8 dès le premier caractère accentué. Retourne None si aucun
+    des deux encodages ne convient, plutôt que de laisser remonter une
+    UnicodeDecodeError illisible pour l'utilisateur."""
+    for encodage in ENCODAGES_ACCEPTES:
+        try:
+            return contenu_brut.decode(encodage)
+        except UnicodeDecodeError:
+            continue
+    return None
 
 
 class LigneInvalide(Exception):
