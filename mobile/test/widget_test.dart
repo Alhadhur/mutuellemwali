@@ -9,7 +9,7 @@ void main() {
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(const MutuelleSanteApp());
+    await tester.pumpWidget(const MutuelleYatruApp());
 
     // Le temps de lire le jeton stocké, l'app affiche un indicateur d'attente.
     expect(find.byType(CircularProgressIndicator), findsOneWidget);

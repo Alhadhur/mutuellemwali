@@ -2,20 +2,78 @@ import 'package:flutter/material.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/lock_screen.dart';
 import 'services/api_service.dart';
+import 'services/lock_service.dart';
 
 void main() {
-  runApp(const MutuelleSanteApp());
+  runApp(const MutuelleYatruApp());
 }
 
-class MutuelleSanteApp extends StatelessWidget {
-  const MutuelleSanteApp({super.key});
+class MutuelleYatruApp extends StatefulWidget {
+  const MutuelleYatruApp({super.key});
+
+  @override
+  State<MutuelleYatruApp> createState() => _MutuelleYatruAppState();
+}
+
+class _MutuelleYatruAppState extends State<MutuelleYatruApp> with WidgetsBindingObserver {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  bool _futEnArrierePlan = false;
+  bool _verrouAffiche = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Le verrouillage au lancement à froid est géré par _StartupGate. Ici,
+    // on ne s'occupe que du retour au premier plan après une mise en
+    // arrière-plan effective — sinon le premier `resumed` du démarrage
+    // pousserait un deuxième écran de verrouillage par-dessus le premier.
+    if (state == AppLifecycleState.paused) {
+      _futEnArrierePlan = true;
+    } else if (state == AppLifecycleState.resumed && _futEnArrierePlan) {
+      _futEnArrierePlan = false;
+      _verrouillerSiNecessaire();
+    }
+  }
+
+  Future<void> _verrouillerSiNecessaire() async {
+    if (_verrouAffiche) return;
+    final connecte = await ApiService.instance.isLoggedIn;
+    if (!connecte) return;
+    final aUnPin = await LockService.instance.hasPin;
+    if (!aUnPin) return;
+
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return;
+
+    _verrouAffiche = true;
+    await navigator.push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => LockScreen(onUnlocked: () => Navigator.of(context).pop()),
+      ),
+    );
+    _verrouAffiche = false;
+  }
 
   @override
   Widget build(BuildContext context) {
     const accent = Color(0xFF2563EB);
     return MaterialApp(
-      title: 'Mutuelle Santé',
+      navigatorKey: _navigatorKey,
+      title: 'Mutuelle Yatru',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -65,6 +123,8 @@ class _StartupGate extends StatefulWidget {
 class _StartupGateState extends State<_StartupGate> {
   bool _loading = true;
   bool _loggedIn = false;
+  bool _pinConfigure = false;
+  bool _deverrouille = false;
 
   @override
   void initState() {
@@ -74,9 +134,11 @@ class _StartupGateState extends State<_StartupGate> {
 
   Future<void> _check() async {
     final loggedIn = await ApiService.instance.isLoggedIn;
+    final pinConfigure = loggedIn && await LockService.instance.hasPin;
     if (!mounted) return;
     setState(() {
       _loggedIn = loggedIn;
+      _pinConfigure = pinConfigure;
       _loading = false;
     });
   }
@@ -86,6 +148,12 @@ class _StartupGateState extends State<_StartupGate> {
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return _loggedIn ? const HomeScreen() : const LoginScreen();
+    if (!_loggedIn) {
+      return const LoginScreen();
+    }
+    if (_pinConfigure && !_deverrouille) {
+      return LockScreen(onUnlocked: () => setState(() => _deverrouille = true));
+    }
+    return const HomeScreen();
   }
 }

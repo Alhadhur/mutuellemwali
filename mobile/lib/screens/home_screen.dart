@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api_service.dart';
+import '../services/lock_service.dart';
 import '../widgets/app_drawer.dart';
 import 'login_screen.dart';
 import 'mon_profil_edit_screen.dart';
@@ -9,6 +10,7 @@ import 'profil_tab.dart';
 import 'ayants_droit_tab.dart';
 import 'prescriptions_tab.dart';
 import 'prescription_form_screen.dart';
+import 'securite_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -43,6 +45,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _seDeconnecter() async {
     await ApiService.instance.logout();
+    // Un autre agent pourrait se connecter ensuite sur ce même téléphone :
+    // il ne doit pas hériter du code PIN de celui qui se déconnecte.
+    await LockService.instance.clearPin();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -56,6 +61,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     // Le nom/la région affichés dans l'en-tête du menu ont pu changer.
     _chargerUtilisateur();
+  }
+
+  Future<void> _ouvrirSecurite() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SecuriteScreen()),
+    );
   }
 
   Future<void> _nouvellePrescription() async {
@@ -98,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
           titre: 'Compte',
           entrees: [
             EntreeMenu(icone: Icons.manage_accounts_outlined, libelle: 'Modifier mon profil', action: _modifierMonProfil),
+            EntreeMenu(icone: Icons.lock_outline, libelle: 'Sécurité', action: _ouvrirSecurite),
             EntreeMenu(icone: Icons.logout, libelle: 'Se déconnecter', action: _seDeconnecter),
           ],
         ),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../services/lock_service.dart';
 import 'home_screen.dart';
+import 'pin_setup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,6 +30,15 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       await ApiService.instance.login(_matriculeCtrl.text.trim().toUpperCase(), _passwordCtrl.text);
+      if (!mounted) return;
+      // Proposé une seule fois, juste après la connexion : sans code PIN
+      // déjà configuré, quiconque récupère le téléphone déverrouillé accède
+      // directement au dossier de l'agent, sans même repasser par ce login.
+      if (!await LockService.instance.hasPin && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const PinSetupScreen(peutPasser: true)),
+        );
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
     } catch (e) {
@@ -57,7 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('🛡️ Mutuelle Santé', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    const Text('🛡️ Mutuelle Yatru', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     Text('Soumettez vos justificatifs et suivez vos remboursements',
                         style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
