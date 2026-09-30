@@ -1,6 +1,13 @@
 {% extends "backoffice/liste.html" %}
 
 {% block filtres %}
+  {% if agent_filtre %}
+    <span class="badge">
+      Agent : {{ agent_filtre.matricule }} — {{ agent_filtre.utilisateur.get_full_name }}
+      <a href="{% url 'backoffice:prescriptions' %}">✕</a>
+    </span>
+    <input type="hidden" name="agent" value="{{ filtre_agent }}">
+  {% endif %}
   <select name="statut">
     <option value="">Tous les statuts</option>
     {% for valeur, libelle in statuts %}

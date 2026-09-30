@@ -751,6 +751,10 @@ class PrescriptionListe(ListeBase):
         if date_max:
             queryset = queryset.filter(date_emission__lte=date_max)
 
+        agent = self.request.GET.get("agent", "")
+        if agent:
+            queryset = queryset.filter(agent_id=agent)
+
         return queryset
 
     def get_context_data(self, **kwargs):
@@ -763,6 +767,13 @@ class PrescriptionListe(ListeBase):
         contexte["statuts"] = StatutPrescription.choices
         contexte["prestataires"] = Prestataire.objects.order_by("nom")
         contexte["natures"] = NatureSoin.objects.order_by("ordre")
+        # Pas de liste déroulante « agent » ici : avec plusieurs milliers
+        # d'agents elle serait inutilisable. Ce filtre n'est accessible que
+        # via le lien « Voir toutes ses prescriptions » de la fiche agent.
+        filtre_agent = self.request.GET.get("agent", "")
+        contexte["filtre_agent"] = filtre_agent
+        if filtre_agent:
+            contexte["agent_filtre"] = Agent.objects.select_related("utilisateur").filter(pk=filtre_agent).first()
         return contexte
 
 

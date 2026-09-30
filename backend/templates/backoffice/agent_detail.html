@@ -70,7 +70,10 @@
 </section>
 
 <section>
-  <h2>Dernières prescriptions</h2>
+  <div class="barre-actions">
+    <h2>Dernières prescriptions</h2>
+    <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescriptions' %}?agent={{ agent.pk }}">Voir toutes ses prescriptions →</a>
+  </div>
   {% if prescriptions %}
     <table>
       <tr><th>N° ordonnance</th><th>Prestataire</th><th>Montant</th><th>Remboursé</th><th>Date</th><th>Statut</th><th></th></tr>

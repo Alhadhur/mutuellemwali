@@ -256,6 +256,33 @@ class ListesTest(BaseBackoffice):
         self.assertContains(reponse, "ORD-1")
         self.assertNotContains(reponse, "ORD-ANCIENNE")
 
+    def test_les_prescriptions_se_filtrent_par_agent(self):
+        """Depuis la fiche d'un agent, on doit pouvoir retrouver uniquement
+        ses prescriptions plutôt que le top 20 figé de la fiche."""
+        autre_compte = Utilisateur.objects.create_user("A0002", "x", nom="Autre", prenom="Agent", role=Role.AGENT)
+        autre_agent = Agent.objects.create(
+            utilisateur=autre_compte, site="Moroni", date_naissance=date(1988, 1, 1), date_embauche=date(2019, 1, 1)
+        )
+        Prescription.objects.create(
+            agent=autre_agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-AUTRE-AGENT",
+            montant_total=3000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"agent": self.agent.pk})
+
+        self.assertContains(reponse, "ORD-1")
+        self.assertNotContains(reponse, "ORD-AUTRE-AGENT")
+        self.assertContains(reponse, self.agent.matricule)
+
+    def test_la_fiche_agent_propose_un_lien_vers_toutes_ses_prescriptions(self):
+        reponse = self.client.get(reverse("backoffice:agent_detail", args=[self.agent.pk]))
+
+        self.assertContains(reponse, f'{reverse("backoffice:prescriptions")}?agent={self.agent.pk}')
+
     def test_la_liste_des_prescriptions_distingue_agent_et_ayant_droit(self):
         ayant_droit = AyantDroit.objects.create(
             agent=self.agent,
