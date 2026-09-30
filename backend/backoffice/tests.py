@@ -108,6 +108,49 @@ class TableauDeBordAgentTest(BaseBackoffice):
 
         self.assertEqual(reponse.status_code, 403)
 
+    def test_la_recherche_filtre_ses_propres_prescriptions(self):
+        """Utile quand l'historique de l'agent s'allonge : retrouver une
+        prescription par son numéro, son prestataire ou sa nature."""
+        Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-2",
+            montant_total=2000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+        self.client.force_login(self.compte_agent)
+
+        reponse = self.client.get(reverse("backoffice:mon_tableau_de_bord"), {"recherche": "ORD-2"})
+
+        self.assertContains(reponse, "ORD-2")
+        self.assertNotContains(reponse, "ORD-1")
+
+    def test_la_recherche_sans_resultat_affiche_un_message(self):
+        self.client.force_login(self.compte_agent)
+
+        reponse = self.client.get(reverse("backoffice:mon_tableau_de_bord"), {"recherche": "INTROUVABLE"})
+
+        self.assertNotContains(reponse, "ORD-1")
+        self.assertContains(reponse, "Aucune prescription ne correspond")
+
+    def test_les_prescriptions_se_paginent_au_dela_de_15(self):
+        for i in range(16):
+            Prescription.objects.create(
+                agent=self.agent,
+                prestataire=self.prestataire,
+                numero_ordonnance=f"ORD-PAGE-{i}",
+                montant_total=1000,
+                date_emission=date.today(),
+                justificatif="x.jpg",
+            )
+        self.client.force_login(self.compte_agent)
+
+        reponse = self.client.get(reverse("backoffice:mon_tableau_de_bord"))
+
+        self.assertContains(reponse, "Page 1 sur 2")
+        self.assertContains(reponse, "Suivant")
+
 
 class MaPrescriptionCreerTest(BaseBackoffice):
     """L'agent peut saisir sa propre ordonnance depuis son tableau de bord,

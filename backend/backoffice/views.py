@@ -9,6 +9,7 @@ from django import forms as django_forms
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import ProtectedError, Q
 from django.http import Http404, JsonResponse
@@ -368,9 +369,20 @@ class MonTableauDeBord(AccesAgent, TemplateView):
         contexte["periode_fin"] = fin
         contexte["cotisation"] = agent.cotisation_mensuelle
         contexte["ayants_droit"] = agent.ayants_droit.all()
-        contexte["prescriptions"] = (
-            agent.prescriptions.select_related("prestataire", "ayant_droit", "nature").order_by("-date_creation")[:30]
+
+        prescriptions = agent.prescriptions.select_related("prestataire", "ayant_droit", "nature").order_by(
+            "-date_creation"
         )
+        recherche = self.request.GET.get("recherche", "").strip()
+        if recherche:
+            prescriptions = prescriptions.filter(
+                Q(numero_ordonnance__icontains=recherche)
+                | Q(prestataire__nom__icontains=recherche)
+                | Q(nature__libelle__icontains=recherche)
+            )
+        contexte["recherche"] = recherche
+        contexte["page_obj"] = Paginator(prescriptions, 15).get_page(self.request.GET.get("page"))
+        contexte["prescriptions"] = contexte["page_obj"]
         return contexte
 
 

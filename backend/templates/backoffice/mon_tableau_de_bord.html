@@ -46,7 +46,14 @@
   </section>
 
   <section>
-    <h2>🧾 Mes prescriptions récentes</h2>
+    <div class="barre-actions">
+      <h2>🧾 Mes prescriptions</h2>
+      <form method="get" style="display:flex;gap:8px;align-items:center;">
+        <input type="search" name="recherche" value="{{ recherche }}" placeholder="N° ordonnance, prestataire, nature…">
+        <button class="btn btn-secondaire" type="submit">Rechercher</button>
+        {% if recherche %}<a class="btn btn-secondaire" href="{% url 'backoffice:mon_tableau_de_bord' %}">Réinitialiser</a>{% endif %}
+      </form>
+    </div>
     {% if prescriptions %}
     <table>
       <tr><th>N° ordonnance</th><th>Bénéficiaire</th><th>Prestataire</th><th>Montant</th><th>Remboursé</th><th>Date</th><th>Statut</th></tr>
@@ -64,6 +71,19 @@
       </tr>
       {% endfor %}
     </table>
+    {% if page_obj.paginator.num_pages > 1 %}
+      <div class="pagination">
+        {% if page_obj.has_previous %}
+          <a href="?page={{ page_obj.previous_page_number }}{% if recherche %}&recherche={{ recherche|urlencode }}{% endif %}">← Précédent</a>
+        {% endif %}
+        <span>Page {{ page_obj.number }} sur {{ page_obj.paginator.num_pages }} — {{ page_obj.paginator.count }} prescription{{ page_obj.paginator.count|pluralize }}</span>
+        {% if page_obj.has_next %}
+          <a href="?page={{ page_obj.next_page_number }}{% if recherche %}&recherche={{ recherche|urlencode }}{% endif %}">Suivant →</a>
+        {% endif %}
+      </div>
+    {% endif %}
+    {% elif recherche %}
+    <div class="empty">Aucune prescription ne correspond à « {{ recherche }} ».</div>
     {% else %}
     <div class="empty">Aucune prescription enregistrée.</div>
     {% endif %}
