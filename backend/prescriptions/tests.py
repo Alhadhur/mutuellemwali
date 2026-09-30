@@ -281,3 +281,22 @@ class AyantDroitHorsCouvertureTest(BasePrescriptions):
         prescription.save()
 
         self.assertEqual(prescription.montant_rembourse, 0)
+
+    def test_un_enfant_qui_vient_d_atteindre_l_age_limite_reste_couvert_jusqu_a_fin_d_annee(self):
+        """Convention de la mutuelle : la couverture continue jusqu'au 31
+        décembre de l'année où l'enfant atteint l'âge limite, pas dès son
+        anniversaire — même le jour même de ses 18 ans, il reste remboursé."""
+        ayant_droit = self._ayant_droit(18)
+
+        prescription = Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=ayant_droit,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-4",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        self.assertEqual(prescription.montant_rembourse, 8000)
+        self.assertEqual(prescription.statut, StatutPrescription.SOUMISE)

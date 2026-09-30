@@ -100,6 +100,36 @@ class CompositionCouverteTest(BaseFamille):
         self.assertEqual(self.relire().nombre_enfants, 1)
 
 
+class LimiteAgeAnneeCivileTest(BaseFamille):
+    """Convention de la mutuelle : un enfant reste couvert jusqu'au 31
+    décembre de l'année où il atteint l'âge limite (ex : 18 ans le
+    12/07/2026, couvert jusqu'au 31/12/2026), pas dès son anniversaire."""
+
+    def _enfant(self, date_naissance):
+        return AyantDroit.objects.create(
+            agent=self.agent,
+            nom="X",
+            prenom="Y",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            date_naissance=date_naissance,
+            statut_verification=StatutVerification.VALIDE,
+        )
+
+    def test_encore_couvert_l_annee_ou_il_atteint_la_limite(self):
+        aujourdhui = date.today()
+        enfant = self._enfant(date(aujourdhui.year - 18, 7, 12))
+
+        self.assertFalse(enfant.limite_age_depassee)
+
+    def test_plus_couvert_a_partir_de_l_annee_suivante(self):
+        aujourdhui = date.today()
+        enfant = self._enfant(date(aujourdhui.year - 19, 7, 12))
+
+        self.assertTrue(enfant.limite_age_depassee)
+
+
 class CycleQuotaTest(BaseFamille):
     """Le quota du barème se consomme sur un cycle de N mois, puis repart au
     montant plein : le reliquat n'est pas reporté."""

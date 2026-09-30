@@ -210,10 +210,14 @@ class AyantDroit(models.Model):
 
     @property
     def limite_age_depassee(self):
-        """Un enfant n'est plus couvert à partir de l'âge limite paramétré."""
-        if self.lien_parente != LienParente.ENFANT or self.age is None:
+        """Un enfant reste couvert jusqu'au 31 décembre de l'année où il
+        atteint l'âge limite (convention de la mutuelle) — pas dès son
+        anniversaire. Exemple : 18 ans le 12/07/2026, couvert jusqu'au
+        31/12/2026, plus couvert à partir du 01/01/2027."""
+        if self.lien_parente != LienParente.ENFANT or not self.date_naissance:
             return False
-        return self.age >= self.age_limite
+        annee_limite = self.date_naissance.year + self.age_limite
+        return timezone.localdate().year > annee_limite
 
     def consommation_periode(self, reference=None):
         """Part de l'enveloppe familiale consommée par cet ayant droit sur le

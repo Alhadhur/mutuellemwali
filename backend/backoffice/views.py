@@ -537,8 +537,8 @@ class AyantDroitListe(ListeBase):
                 continue
             if limite_depassee and not (
                 ayant_droit.lien_parente == LienParente.ENFANT
-                and ayant_droit.age is not None
-                and ayant_droit.age >= age_limite
+                and ayant_droit.date_naissance is not None
+                and timezone.localdate().year > ayant_droit.date_naissance.year + age_limite
             ):
                 continue
             if justificatif_expire and not ayant_droit.est_expire:

@@ -559,6 +559,19 @@ class AyantDroitFiltresTest(BaseBackoffice):
             statut_verification=StatutVerification.VALIDE,
             date_validite=aujourdhui - timedelta(days=10),
         )
+        # Vient d'atteindre l'âge limite cette année civile : encore couvert
+        # jusqu'au 31 décembre (convention de la mutuelle), donc absent du
+        # filtre « limite d'âge dépassée ».
+        self.enfant_limite_cette_annee = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="LimiteCetteAnnee",
+            prenom="Enfant",
+            date_naissance=aujourdhui.replace(year=aujourdhui.year - 18),
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
 
     def test_filtre_par_lien_de_parente(self):
         reponse = self.client.get(reverse("backoffice:ayants_droit"), {"lien": LienParente.CONJOINT})
@@ -594,6 +607,7 @@ class AyantDroitFiltresTest(BaseBackoffice):
         self.assertContains(reponse, "Enfant Majeur")
         self.assertNotContains(reponse, "Enfant Jeune")
         self.assertNotContains(reponse, "Un Partenaire")
+        self.assertNotContains(reponse, "Enfant LimiteCetteAnnee")
 
     def test_filtre_justificatif_expire(self):
         reponse = self.client.get(reverse("backoffice:ayants_droit"), {"justificatif_expire": "1"})
