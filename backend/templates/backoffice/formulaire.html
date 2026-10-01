@@ -23,7 +23,9 @@
     </div>
 
     <div class="formulaire__pied">
-      <button class="btn" type="submit">Enregistrer</button>
+      {% if peut_modifier|default:True %}
+        <button class="btn" type="submit">Enregistrer</button>
+      {% endif %}
       <a class="btn btn-secondaire" href="{{ url_retour }}">Annuler</a>
       <span style="margin-left:auto;font-size:12px;color:var(--muted);">
         <span class="obligatoire">*</span> champ obligatoire
@@ -31,6 +33,12 @@
     </div>
   </form>
 </section>
+
+{% if not peut_modifier|default:True %}
+  <p style="margin:-10px 0 16px;font-size:12.5px;color:var(--muted);">
+    Lecture seule : ces réglages s'appliquent à toute la mutuelle, seul un administrateur peut les modifier.
+  </p>
+{% endif %}
 
 {% if url_mon_mot_de_passe %}
   <section>

@@ -55,6 +55,18 @@ class AccesModification(AccesBackoffice):
         )
 
 
+class AccesSuperuser(LoginRequiredMixin, UserPassesTestMixin):
+    """Strictement au-dessus du service mutuelle (RH) : pour les actions qui
+    engagent toute l'organisation plutôt qu'un dossier isolé — gestion des
+    comptes, paramétrage global de la mutuelle, suppression d'une facture ou
+    d'une prescription déjà soumise. Un compte RH compromis ou négligent ne
+    doit pas pouvoir, à lui seul, créer d'autres comptes RH ni effacer une
+    pièce financière."""
+
+    def test_func(self):
+        return self.request.user.is_authenticated and self.request.user.is_superuser
+
+
 class AccesAgent(LoginRequiredMixin, UserPassesTestMixin):
     """Le tableau de bord agent, réservé à l'intéressé — pas de fiche Agent,
     pas d'accès (même règle que EstAgent côté API mobile)."""
@@ -908,11 +920,16 @@ class PrescriptionDetail(AccesBackoffice, DetailView):
         contexte["doublons"] = self.object.detecter_doublons().select_related("prestataire")
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
         contexte["statuts"] = StatutPrescription.choices
-        contexte["peut_supprimer"] = self.object.statut not in STATUTS_MANUELS
+        # Suppression réservée au superuser (voir PrescriptionSupprimer) : RH
+        # garde la création/modification, pas l'effacement d'une pièce déjà
+        # soumise.
+        contexte["peut_supprimer"] = (
+            self.object.statut not in STATUTS_MANUELS and self.request.user.is_superuser
+        )
         return contexte
 
 
-class PrescriptionSupprimer(AccesModification, View):
+class PrescriptionSupprimer(AccesSuperuser, View):
     """Suppression réservée aux prescriptions pas encore décidées : une fois
     validée ou rejetée, la décision doit rester tracée, quitte à corriger par
     un nouveau changement de statut plutôt que par un effacement."""
@@ -1050,7 +1067,11 @@ class FactureDetail(AccesBackoffice, DetailView):
         contexte["non_facturees"] = self.object.prescriptions_non_facturees()
         contexte["synthese"] = self.object.synthese()
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
-        contexte["peut_supprimer"] = self.object.statut != StatutFacture.VALIDEE
+        # Suppression réservée au superuser (voir FactureSupprimer) : RH garde
+        # la création/modification, pas l'effacement d'une pièce déjà soumise.
+        contexte["peut_supprimer"] = (
+            self.object.statut != StatutFacture.VALIDEE and self.request.user.is_superuser
+        )
         return contexte
 
 
@@ -1233,7 +1254,7 @@ class FactureContester(AccesModification, View):
         return redirect("backoffice:facture_detail", pk=pk)
 
 
-class FactureSupprimer(AccesModification, View):
+class FactureSupprimer(AccesSuperuser, View):
     """Suppression réservée aux factures pas encore validées : une fois
     validée, elle a déjà fait passer des prescriptions en « Validée » — cette
     décision doit rester tracée plutôt que d'être effacée avec la facture qui
@@ -1389,15 +1410,23 @@ class UtilisateurListe(ListeBase):
         ("Actif", "is_active"),
     )
 
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        # Un RH peut créer ou promouvoir n'importe quel compte, y compris en
+        # RH : la gestion des comptes est réservée au superuser, qui reste
+        # seul juge de qui rejoint le service mutuelle. RH garde la lecture.
+        contexte["peut_modifier"] = self.request.user.is_superuser
+        return contexte
 
-class UtilisateurCreer(FormulaireBase, CreateView):
+
+class UtilisateurCreer(AccesSuperuser, FormulaireBase, CreateView):
     model = Utilisateur
     form_class = forms.UtilisateurCreationForm
     titre = "Nouveau compte"
     success_url = reverse_lazy("backoffice:utilisateurs")
 
 
-class UtilisateurModifier(FormulaireBase, UpdateView):
+class UtilisateurModifier(AccesSuperuser, FormulaireBase, UpdateView):
     model = Utilisateur
     form_class = forms.UtilisateurForm
     titre = "Modifier le compte"
@@ -1434,7 +1463,10 @@ def _actif_import(brut):
     return brut.strip().lower() in ("oui", "vrai", "true", "1", "actif")
 
 
-class UtilisateurImport(ImportCSVBase):
+class UtilisateurImport(AccesSuperuser, ImportCSVBase):
+    """Un import peut créer ou reclasser des comptes (colonne `role`) : même
+    gate que la création/modification manuelle, réservée au superuser."""
+
     titre = "Importer des utilisateurs"
     aide = (
         "Colonnes obligatoires : matricule, nom, prenom. Facultatives : email, "
@@ -1489,7 +1521,7 @@ class UtilisateurImport(ImportCSVBase):
         return nouvel_utilisateur, True
 
 
-class UtilisateurMotDePasse(AccesModification, TemplateView):
+class UtilisateurMotDePasse(AccesSuperuser, TemplateView):
     template_name = "backoffice/formulaire.html"
 
     def get_context_data(self, **kwargs):
@@ -1515,13 +1547,37 @@ class UtilisateurMotDePasse(AccesModification, TemplateView):
 
 
 class ParametrageModifier(FormulaireBase, UpdateView):
+    """Ces réglages s'appliquent à toute la mutuelle, pas à un dossier isolé :
+    RH consulte, seul le superuser modifie — mêmes champs affichés, désactivés
+    pour qui n'a pas la main."""
+
     model = Parametrage
     form_class = forms.ParametrageForm
     titre = "Paramètres de la mutuelle"
     success_url = reverse_lazy("backoffice:parametrage")
 
+    def test_func(self):
+        utilisateur = self.request.user
+        if not utilisateur.is_authenticated:
+            return False
+        if self.request.method == "POST":
+            return utilisateur.is_superuser
+        return utilisateur.role in (Role.RH, Role.DIRECTION) or utilisateur.is_superuser
+
     def get_object(self, queryset=None):
         return Parametrage.charger()
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if not self.request.user.is_superuser:
+            for champ in form.fields.values():
+                champ.disabled = True
+        return form
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["peut_modifier"] = self.request.user.is_superuser
+        return contexte
 
 
 class BaremeListe(ListeBase):
@@ -1540,15 +1596,22 @@ class BaremeListe(ListeBase):
         ("Quota mensuel", lambda o: f"{o.montant} KMF"),
     )
 
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        # Le barème s'applique à toute la mutuelle : RH consulte, seul le
+        # superuser modifie (voir BaremeCreer/Modifier/Supprimer).
+        contexte["peut_modifier"] = self.request.user.is_superuser
+        return contexte
 
-class BaremeCreer(FormulaireBase, CreateView):
+
+class BaremeCreer(AccesSuperuser, FormulaireBase, CreateView):
     model = TrancheQuota
     form_class = forms.TrancheQuotaForm
     titre = "Nouvelle tranche de quota"
     success_url = reverse_lazy("backoffice:bareme")
 
 
-class BaremeModifier(FormulaireBase, UpdateView):
+class BaremeModifier(AccesSuperuser, FormulaireBase, UpdateView):
     model = TrancheQuota
     form_class = forms.TrancheQuotaForm
     titre = "Modifier la tranche"
@@ -1560,7 +1623,7 @@ class BaremeModifier(FormulaireBase, UpdateView):
         return contexte
 
 
-class BaremeSupprimer(SupprimerBase):
+class BaremeSupprimer(AccesSuperuser, SupprimerBase):
     model = TrancheQuota
     url_liste = "backoffice:bareme"
     libelle = "Tranche de barème"

@@ -8,7 +8,7 @@ from django.utils import timezone
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
 from facturation.models import Facture, StatutFacture, StatutLigne
-from parametrage.models import NatureSoin, Parametrage
+from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TypePrestataire
 
@@ -20,6 +20,7 @@ def fichier_csv(contenu, nom="fichier.csv", encodage="utf-8"):
 class BaseBackoffice(TestCase):
     def setUp(self):
         self.rh = Utilisateur.objects.create_user("RH1", "x", nom="Rh", prenom="Service", role=Role.RH)
+        self.superuser = Utilisateur.objects.create_superuser("SUPER1", "x", nom="Super", prenom="Admin")
         self.direction = Utilisateur.objects.create_user(
             "DIR1", "x", nom="Dir", prenom="Controle", role=Role.DIRECTION
         )
@@ -564,6 +565,37 @@ class PrescriptionModifierTest(BaseBackoffice):
         self.assertEqual(reponse.status_code, 403)
 
 
+class PrescriptionSupprimerTest(BaseBackoffice):
+    """Suppression réservée au superuser (voir AccesSuperuser) : RH garde la
+    création/modification des prescriptions, pas l'effacement d'une pièce
+    déjà soumise."""
+
+    def test_une_prescription_soumise_se_supprime(self):
+        self.client.force_login(self.superuser)
+
+        reponse = self.client.post(reverse("backoffice:prescription_supprimer", args=[self.prescription.pk]))
+
+        self.assertRedirects(reponse, reverse("backoffice:prescriptions"))
+        self.assertFalse(Prescription.objects.filter(pk=self.prescription.pk).exists())
+
+    def test_une_prescription_validee_ne_se_supprime_pas(self):
+        self.client.force_login(self.superuser)
+        self.prescription.changer_statut(StatutPrescription.VALIDEE, utilisateur=self.superuser)
+
+        reponse = self.client.post(reverse("backoffice:prescription_supprimer", args=[self.prescription.pk]))
+
+        self.assertRedirects(reponse, reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+        self.assertTrue(Prescription.objects.filter(pk=self.prescription.pk).exists())
+
+    def test_le_rh_ne_peut_pas_supprimer(self):
+        self.client.force_login(self.rh)
+
+        reponse = self.client.post(reverse("backoffice:prescription_supprimer", args=[self.prescription.pk]))
+
+        self.assertEqual(reponse.status_code, 403)
+        self.assertTrue(Prescription.objects.filter(pk=self.prescription.pk).exists())
+
+
 class AyantDroitTest(BaseBackoffice):
     def setUp(self):
         super().setUp()
@@ -702,9 +734,13 @@ class PrestataireTest(BaseBackoffice):
 
 
 class FactureSupprimerTest(BaseBackoffice):
+    """Suppression réservée au superuser (voir AccesSuperuser) : RH garde la
+    création/modification des factures, pas l'effacement d'une pièce déjà
+    soumise."""
+
     def setUp(self):
         super().setUp()
-        self.client.force_login(self.rh)
+        self.client.force_login(self.superuser)
         self.facture = Facture.objects.create(
             prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=1000
         )
@@ -726,6 +762,14 @@ class FactureSupprimerTest(BaseBackoffice):
 
     def test_la_direction_ne_peut_pas_supprimer(self):
         self.client.force_login(self.direction)
+
+        reponse = self.client.post(reverse("backoffice:facture_supprimer", args=[self.facture.pk]))
+
+        self.assertEqual(reponse.status_code, 403)
+        self.assertTrue(Facture.objects.filter(pk=self.facture.pk).exists())
+
+    def test_le_rh_ne_peut_pas_supprimer(self):
+        self.client.force_login(self.rh)
 
         reponse = self.client.post(reverse("backoffice:facture_supprimer", args=[self.facture.pk]))
 
@@ -774,7 +818,7 @@ class FactureListeFiltresTest(BaseBackoffice):
 
 class UtilisateurTest(BaseBackoffice):
     def test_creer_un_compte_enregistre_un_mot_de_passe_utilisable(self):
-        self.client.force_login(self.rh)
+        self.client.force_login(self.superuser)
 
         self.client.post(
             reverse("backoffice:utilisateur_creer"),
@@ -797,7 +841,7 @@ class UtilisateurTest(BaseBackoffice):
         self.assertEqual(cree.telephone, "+269 333 44 55")
 
     def test_le_telephone_reste_facultatif(self):
-        self.client.force_login(self.rh)
+        self.client.force_login(self.superuser)
 
         self.client.post(
             reverse("backoffice:utilisateur_creer"),
@@ -815,7 +859,7 @@ class UtilisateurTest(BaseBackoffice):
         self.assertEqual(Utilisateur.objects.get(matricule="A0011").telephone, "")
 
     def test_deux_mots_de_passe_differents_bloquent_la_creation(self):
-        self.client.force_login(self.rh)
+        self.client.force_login(self.superuser)
 
         self.client.post(
             reverse("backoffice:utilisateur_creer"),
@@ -831,10 +875,57 @@ class UtilisateurTest(BaseBackoffice):
 
         self.assertFalse(Utilisateur.objects.filter(matricule="A0010").exists())
 
+    def test_un_rh_ne_peut_pas_creer_de_compte(self):
+        """La gestion des comptes — en particulier promouvoir quelqu'un en RH
+        ou DIRECTION — est réservée au superuser : un RH seul ne doit pas
+        pouvoir s'auto-attribuer des collègues."""
+        self.client.force_login(self.rh)
+
+        reponse = self.client.post(
+            reverse("backoffice:utilisateur_creer"),
+            {
+                "matricule": "A0012",
+                "nom": "Test",
+                "prenom": "Promu",
+                "role": Role.RH,
+                "is_active": "on",
+                "mot_de_passe": "MotDePasse2026!",
+                "confirmation": "MotDePasse2026!",
+            },
+        )
+
+        self.assertEqual(reponse.status_code, 403)
+        self.assertFalse(Utilisateur.objects.filter(matricule="A0012").exists())
+
+    def test_un_rh_ne_peut_pas_modifier_un_compte_ni_son_mot_de_passe(self):
+        self.client.force_login(self.rh)
+
+        reponse_modifier = self.client.get(reverse("backoffice:utilisateur_modifier", args=[self.direction.pk]))
+        reponse_mot_de_passe = self.client.post(
+            reverse("backoffice:utilisateur_mot_de_passe", args=[self.direction.pk]),
+            {"mot_de_passe": "Nouveau2026!", "confirmation": "Nouveau2026!"},
+        )
+
+        self.assertEqual(reponse_modifier.status_code, 403)
+        self.assertEqual(reponse_mot_de_passe.status_code, 403)
+
+    def test_un_rh_voit_la_liste_sans_les_actions_de_gestion(self):
+        """RH garde la consultation (lecture) de l'annuaire des comptes."""
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:utilisateurs"))
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, self.rh.matricule)
+        self.assertNotContains(reponse, "Nouveau compte")
+
 
 class ParametrageTest(BaseBackoffice):
+    """Ces réglages s'appliquent à toute la mutuelle : RH consulte, seul le
+    superuser modifie (voir AccesSuperuser et ParametrageModifier)."""
+
     def test_le_formulaire_met_a_jour_la_ligne_unique(self):
-        self.client.force_login(self.rh)
+        self.client.force_login(self.superuser)
 
         self.client.post(
             reverse("backoffice:parametrage"),
@@ -858,7 +949,7 @@ class ParametrageTest(BaseBackoffice):
         self.assertEqual(Parametrage.objects.count(), 1)
 
     def test_les_seuils_de_detection_sont_reglables_sans_toucher_au_code(self):
-        self.client.force_login(self.rh)
+        self.client.force_login(self.superuser)
 
         self.client.post(
             reverse("backoffice:parametrage"),
@@ -882,6 +973,83 @@ class ParametrageTest(BaseBackoffice):
         self.assertEqual(str(parametres.seuil_volume_ecart_type), "0.50")
         self.assertEqual(parametres.seuil_alerte_quota, 25)
 
+    def test_le_rh_consulte_mais_ne_peut_pas_modifier(self):
+        self.client.force_login(self.rh)
+        quota_avant = Parametrage.charger().quota_mensuel_defaut
+
+        reponse_lecture = self.client.get(reverse("backoffice:parametrage"))
+        reponse_ecriture = self.client.post(
+            reverse("backoffice:parametrage"),
+            {
+                "cotisation_base": "5000",
+                "conjoints_inclus": "1",
+                "enfants_inclus": "3",
+                "cout_conjoint_supplementaire": "2000",
+                "cout_enfant_supplementaire": "2000",
+                "age_limite_enfant": "18",
+                "duree_cycle_mois": "1",
+                "quota_mensuel_defaut": "999999",
+                "fenetre_analyse_jours": "90",
+                "seuil_volume_ecart_type": "0.50",
+                "seuil_alerte_quota": "25",
+            },
+        )
+
+        self.assertEqual(reponse_lecture.status_code, 200)
+        self.assertEqual(reponse_ecriture.status_code, 403)
+        self.assertEqual(Parametrage.charger().quota_mensuel_defaut, quota_avant)
+
+
+class BaremeAccesTest(BaseBackoffice):
+    """Le barème s'applique à toute la mutuelle : RH consulte, seul le
+    superuser crée/modifie/supprime une tranche (voir AccesSuperuser)."""
+
+    def setUp(self):
+        super().setUp()
+        self.tranche = TrancheQuota.objects.create(libelle="Sans famille", montant=10000)
+
+    def _donnees(self, **extra):
+        donnees = {"ordre": "10", "libelle": "Nouvelle tranche", "partenaire": "INDIFFERENT", "enfants_min": "0", "montant": "20000"}
+        donnees.update(extra)
+        return donnees
+
+    def test_le_rh_consulte_la_liste_sans_les_actions_de_gestion(self):
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:bareme"))
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, "Sans famille")
+        self.assertNotContains(reponse, "Nouvelle tranche")
+
+    def test_le_rh_ne_peut_ni_creer_ni_modifier_ni_supprimer(self):
+        self.client.force_login(self.rh)
+
+        reponse_creer = self.client.post(reverse("backoffice:bareme_creer"), self._donnees())
+        reponse_modifier = self.client.post(
+            reverse("backoffice:bareme_modifier", args=[self.tranche.pk]), self._donnees()
+        )
+        reponse_supprimer = self.client.post(reverse("backoffice:bareme_supprimer", args=[self.tranche.pk]))
+
+        self.assertEqual(reponse_creer.status_code, 403)
+        self.assertEqual(reponse_modifier.status_code, 403)
+        self.assertEqual(reponse_supprimer.status_code, 403)
+        self.assertFalse(TrancheQuota.objects.filter(libelle="Nouvelle tranche").exists())
+        self.assertTrue(TrancheQuota.objects.filter(pk=self.tranche.pk).exists())
+
+    def test_le_superuser_peut_creer_modifier_et_supprimer(self):
+        self.client.force_login(self.superuser)
+
+        self.client.post(reverse("backoffice:bareme_creer"), self._donnees())
+        self.assertTrue(TrancheQuota.objects.filter(libelle="Nouvelle tranche").exists())
+
+        self.client.post(reverse("backoffice:bareme_modifier", args=[self.tranche.pk]), self._donnees(libelle="Renommée"))
+        self.tranche.refresh_from_db()
+        self.assertEqual(self.tranche.libelle, "Renommée")
+
+        self.client.post(reverse("backoffice:bareme_supprimer", args=[self.tranche.pk]))
+        self.assertFalse(TrancheQuota.objects.filter(pk=self.tranche.pk).exists())
+
 
 class ImportsWebTest(BaseBackoffice):
     """Import CSV avec aperçu (upload → erreurs à l'écran → confirmation),
@@ -899,6 +1067,9 @@ class ImportsWebTest(BaseBackoffice):
     # l'utilisateur ait à les retaper en ASCII.
 
     def test_import_utilisateurs_reconnait_les_en_tetes_accentues_de_l_export(self):
+        """Import réservé au superuser (voir AccesSuperuser) : une ligne peut
+        y porter un rôle RH/DIRECTION, même gate que la création manuelle."""
+        self.client.force_login(self.superuser)
         contenu = (
             "Matricule;Nom;Prénom;Email;Téléphone;Rôle;Région;Actif\n"
             "156;RAMADANE;SAID MLIMI;;337 66 51;Agent (bénéficiaire);Moheli;oui\n"
@@ -919,6 +1090,7 @@ class ImportsWebTest(BaseBackoffice):
         """Excel en français, sur Windows, enregistre parfois le CSV en
         Windows-1252 plutôt qu'en UTF-8 : un « é » y casserait sinon la
         lecture avec une erreur 500 illisible."""
+        self.client.force_login(self.superuser)
         contenu = "Matricule;Nom;Prénom\n157;RAMADANE;SAID MLIMI\n"
         reponse = self.client.post(
             reverse("backoffice:utilisateur_import"), {"fichier": fichier_csv(contenu, encodage="cp1252")}
@@ -930,6 +1102,7 @@ class ImportsWebTest(BaseBackoffice):
         self.assertTrue(Utilisateur.objects.filter(matricule="157").exists())
 
     def test_import_utilisateurs_signale_un_encodage_illisible_sans_lever_d_erreur(self):
+        self.client.force_login(self.superuser)
         # 0x81 n'est un octet valide ni en UTF-8 ni en Windows-1252.
         reponse = self.client.post(
             reverse("backoffice:utilisateur_import"),
@@ -938,6 +1111,15 @@ class ImportsWebTest(BaseBackoffice):
 
         self.assertEqual(reponse.status_code, 200)
         self.assertContains(reponse, "encodage non reconnu")
+
+    def test_un_rh_ne_peut_pas_importer_des_utilisateurs(self):
+        reponse = self.client.post(
+            reverse("backoffice:utilisateur_import"),
+            {"fichier": fichier_csv("Matricule;Nom;Prénom\n159;X;Y\n")},
+        )
+
+        self.assertEqual(reponse.status_code, 403)
+        self.assertFalse(Utilisateur.objects.filter(matricule="159").exists())
 
     def test_import_ayants_droit_reconnait_les_en_tetes_de_l_export(self):
         contenu = (
