@@ -856,6 +856,20 @@ class AyantsDroitDeLAgent(AccesBackoffice, View):
         )
 
 
+class NaturesDuPrestataire(AccesBackoffice, View):
+    """Restreint la nature de soin proposée aux natures réellement tarifées
+    chez le prestataire choisi — mêmes règles que Prestataire.propose_nature,
+    utilisé côté facturation : un prestataire pas encore détaillé (aucun tarif
+    par nature) n'a aucune restriction, la liste complète reste proposée."""
+
+    def get(self, request, pk):
+        prestataire = get_object_or_404(Prestataire, pk=pk)
+        natures = prestataire.natures_proposees() or NatureSoin.proposables()
+        return JsonResponse(
+            {"resultats": [{"id": nature.pk, "libelle": nature.libelle} for nature in natures]}
+        )
+
+
 class PrescriptionCreer(FormulaireBase, CreateView):
     """Saisie d'une ordonnance papier par le service mutuelle. Elle suit le
     même circuit qu'une soumission mobile : la détection de doublons s'applique

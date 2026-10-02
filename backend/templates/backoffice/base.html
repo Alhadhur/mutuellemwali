@@ -214,5 +214,22 @@
     </main>
   </div>
 </div>
+{% block script %}
+<script>
+(function () {
+  // Recherche instantanée : la frappe déclenche elle-même la recherche,
+  // sans attendre un clic sur le bouton (après une courte pause pour ne
+  // pas soumettre à chaque lettre tapée).
+  const champRecherche = document.querySelector('input[name="recherche"]');
+  if (!champRecherche) return;
+  const formulaire = champRecherche.closest('form');
+  let minuteur;
+  champRecherche.addEventListener('input', () => {
+    clearTimeout(minuteur);
+    minuteur = setTimeout(() => formulaire.requestSubmit(), 400);
+  });
+})();
+</script>
+{% endblock %}
 </body>
 </html>

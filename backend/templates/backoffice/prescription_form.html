@@ -78,10 +78,44 @@ fur et à mesure de la saisie.
       "l'agent règle <strong>" + (total - mutuelle) + ' KMF</strong> au guichet.';
   }
 
-  selectPrestataire.addEventListener('change', majRepartition);
+  // Natures réellement proposées par le prestataire choisi (voir
+  // Prestataire.natures_proposees) : un prestataire non détaillé garde la
+  // liste complète rendue par le serveur, inutile d'y toucher.
+  const URL_NATURES = "{% url 'backoffice:recherche_natures_prestataire' 0 %}";
+  const selectNature = document.getElementById('{{ form.nature.auto_id }}');
+
+  async function chargerNatures(prestataireId) {
+    if (!prestataireId) return;
+    const selectionActuelle = selectNature.value;
+    const optionActuelle = selectNature.querySelector('option[value="' + selectionActuelle + '"]');
+    const reponse = await fetch(URL_NATURES.replace('/0/', '/' + prestataireId + '/'));
+    const donnees = await reponse.json();
+    selectNature.innerHTML = '<option value="">— choisir —</option>';
+    for (const nature of donnees.resultats) {
+      const option = document.createElement('option');
+      option.value = nature.id;
+      option.textContent = nature.libelle;
+      selectNature.appendChild(option);
+    }
+    // Une sélection déjà faite (ordonnance en cours de modification) ne doit
+    // pas disparaître silencieusement si elle ne fait plus partie de la
+    // liste restreinte : on la réinjecte plutôt que de la perdre.
+    if (selectionActuelle) {
+      if (!selectNature.querySelector('option[value="' + selectionActuelle + '"]') && optionActuelle) {
+        selectNature.appendChild(optionActuelle.cloneNode(true));
+      }
+      selectNature.value = selectionActuelle;
+    }
+  }
+
+  selectPrestataire.addEventListener('change', () => {
+    majRepartition();
+    chargerNatures(selectPrestataire.value);
+  });
   champMontant.addEventListener('input', majRepartition);
 
   chargerAyantsDroit(selectAgent.value);
+  chargerNatures(selectPrestataire.value);
   majRepartition();
 })();
 </script>

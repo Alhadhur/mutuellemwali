@@ -10,7 +10,7 @@ from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerificat
 from facturation.models import Facture, StatutFacture, StatutLigne
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription, StatutPrescription
-from prestataires.models import Prestataire, StatutPrestataire, TypePrestataire
+from prestataires.models import Prestataire, StatutPrestataire, TarifPrestataire, TypePrestataire
 
 
 def fichier_csv(contenu, nom="fichier.csv", encodage="utf-8"):
@@ -485,6 +485,46 @@ class AyantsDroitDeLAgentTest(BaseBackoffice):
         reponse = self.client.get(reverse("backoffice:recherche_ayants_droit", args=[self.agent.pk]))
 
         self.assertFalse(reponse.json()["resultats"][0]["couvert"])
+
+
+class NaturesDuPrestataireTest(BaseBackoffice):
+    """Sur la saisie d'une prescription, les natures proposées doivent se
+    restreindre à celles réellement tarifées chez le prestataire choisi,
+    plutôt que d'afficher toute la liste — comme la détection d'anomalies à
+    la facturation (voir Prestataire.propose_nature)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.consultation = NatureSoin.objects.get(libelle="Consultation")
+        self.hospitalisation = NatureSoin.objects.get(libelle="Hospitalisation")
+
+    def test_un_prestataire_detaille_ne_propose_que_ses_natures_tarifees(self):
+        TarifPrestataire.objects.create(
+            prestataire=self.prestataire, nature_soin=self.consultation, taux_prise_en_charge=90
+        )
+
+        reponse = self.client.get(reverse("backoffice:recherche_natures_prestataire", args=[self.prestataire.pk]))
+
+        resultats = reponse.json()["resultats"]
+        self.assertEqual([r["id"] for r in resultats], [self.consultation.pk])
+
+    def test_un_prestataire_non_detaille_propose_toutes_les_natures(self):
+        """Pas encore de tarif par nature chez ce prestataire : aucune
+        restriction, sinon la saisie serait bloquée par défaut."""
+        reponse = self.client.get(reverse("backoffice:recherche_natures_prestataire", args=[self.prestataire.pk]))
+
+        resultats = reponse.json()["resultats"]
+        self.assertIn(self.consultation.pk, [r["id"] for r in resultats])
+        self.assertIn(self.hospitalisation.pk, [r["id"] for r in resultats])
+
+    def test_une_nature_desactivee_n_est_pas_proposee(self):
+        self.hospitalisation.active = False
+        self.hospitalisation.save()
+
+        reponse = self.client.get(reverse("backoffice:recherche_natures_prestataire", args=[self.prestataire.pk]))
+
+        self.assertNotIn(self.hospitalisation.pk, [r["id"] for r in reponse.json()["resultats"]])
 
 
 class ChangementStatutTest(BaseBackoffice):

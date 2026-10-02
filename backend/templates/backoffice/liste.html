@@ -58,3 +58,19 @@
   {% endif %}
 </section>
 {% endblock %}
+
+{% block script %}
+  {{ block.super }}
+  <script>
+  (function () {
+    // Un filtre (statut, prestataire, période…) s'applique dès le choix,
+    // sans clic supplémentaire sur « Filtrer » — seule la recherche texte
+    // attend une pause dans la frappe (voir base.html).
+    const formulaire = document.querySelector('.barre-actions form');
+    if (!formulaire) return;
+    formulaire.querySelectorAll('select, input[type="date"]').forEach((champ) => {
+      champ.addEventListener('change', () => formulaire.requestSubmit());
+    });
+  })();
+  </script>
+{% endblock %}
