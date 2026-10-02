@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Indispensable à l'app elle-même (appels à l'API Django), pas
+         seulement aux outils de développement : sans elle, la variante
+         release n'a aucun accès réseau (les manifestes debug/profile la
+         déclarent déjà, mais uniquement pour leurs propres besoins). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="Mutuelle Yatru"
         android:name="${applicationName}"
