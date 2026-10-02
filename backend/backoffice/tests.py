@@ -950,7 +950,9 @@ class UtilisateurTest(BaseBackoffice):
         self.assertEqual(reponse_mot_de_passe.status_code, 403)
 
     def test_un_rh_voit_la_liste_sans_les_actions_de_gestion(self):
-        """RH garde la consultation (lecture) de l'annuaire des comptes."""
+        """RH garde la consultation (lecture) de l'annuaire des comptes, mais
+        pas de lien « Ouvrir » qui mènerait à un formulaire de modification
+        réservé au superuser (sinon : clic, puis 403)."""
         self.client.force_login(self.rh)
 
         reponse = self.client.get(reverse("backoffice:utilisateurs"))
@@ -958,6 +960,7 @@ class UtilisateurTest(BaseBackoffice):
         self.assertEqual(reponse.status_code, 200)
         self.assertContains(reponse, self.rh.matricule)
         self.assertNotContains(reponse, "Nouveau compte")
+        self.assertNotContains(reponse, "Ouvrir")
 
 
 class ParametrageTest(BaseBackoffice):
@@ -1054,6 +1057,8 @@ class BaremeAccesTest(BaseBackoffice):
         return donnees
 
     def test_le_rh_consulte_la_liste_sans_les_actions_de_gestion(self):
+        """Pas de lien « Ouvrir » non plus : il mènerait au formulaire de
+        modification, réservé au superuser (sinon clic → 403)."""
         self.client.force_login(self.rh)
 
         reponse = self.client.get(reverse("backoffice:bareme"))
@@ -1061,6 +1066,7 @@ class BaremeAccesTest(BaseBackoffice):
         self.assertEqual(reponse.status_code, 200)
         self.assertContains(reponse, "Sans famille")
         self.assertNotContains(reponse, "Nouvelle tranche")
+        self.assertNotContains(reponse, "Ouvrir")
 
     def test_le_rh_ne_peut_ni_creer_ni_modifier_ni_supprimer(self):
         self.client.force_login(self.rh)

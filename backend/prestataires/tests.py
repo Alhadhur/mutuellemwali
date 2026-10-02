@@ -33,12 +33,10 @@ class ImportPrestatairesTest(TestCase):
     def test_le_point_virgule_et_les_libelles_francais_sont_acceptes(self):
         """Les fichiers produits par Excel en français utilisent « ; » et des
         libellés en toutes lettres."""
-        importer("type;nom;ville\nÉtablissement;Clinique B;Mutsamudu\nmédecin;Dr C;Fomboni\n")
+        importer("type;nom;ville\nHôpital;Hôpital B;Mutsamudu\nlaboratoire;Labo C;Fomboni\n")
 
-        self.assertEqual(
-            Prestataire.objects.get(nom="Clinique B").type_prestataire, TypePrestataire.ETABLISSEMENT
-        )
-        self.assertEqual(Prestataire.objects.get(nom="Dr C").type_prestataire, TypePrestataire.PRATICIEN)
+        self.assertEqual(Prestataire.objects.get(nom="Hôpital B").type_prestataire, TypePrestataire.HOPITAL)
+        self.assertEqual(Prestataire.objects.get(nom="Labo C").type_prestataire, TypePrestataire.LABORATOIRE)
 
     def test_rejouer_le_fichier_met_a_jour_sans_dupliquer(self):
         contenu = "type,nom,ville,taux\npharmacie,Pharmacie A,Moroni,80\n"

@@ -33,7 +33,7 @@ class BaseRapports(TestCase):
             ville="Moroni", taux_prise_en_charge=80,
         )
         self.clinique = Prestataire.objects.create(
-            type_prestataire=TypePrestataire.ETABLISSEMENT, nom="Clinique El Maarouf",
+            type_prestataire=TypePrestataire.CLINIQUE, nom="Clinique El Maarouf",
             ville="Moroni", taux_prise_en_charge=80,
         )
         self.consultation = NatureSoin.objects.get(libelle="Consultation")

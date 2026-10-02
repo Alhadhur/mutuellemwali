@@ -13,9 +13,12 @@ def _normaliser(texte):
 
 
 class TypePrestataire(models.TextChoices):
+    HOPITAL = "HOPITAL", "Hôpital"
+    DISPENSAIRE = "DISPENSAIRE", "Dispensaire"
     PHARMACIE = "PHARMACIE", "Pharmacie"
-    ETABLISSEMENT = "ETABLISSEMENT", "Établissement médical (clinique, hôpital)"
-    PRATICIEN = "PRATICIEN", "Praticien (médecin, urgentiste)"
+    CLINIQUE = "CLINIQUE", "Clinique"
+    IMAGERIE = "IMAGERIE", "Imagerie"
+    LABORATOIRE = "LABORATOIRE", "Laboratoire"
 
 
 class StatutPrestataire(models.TextChoices):
@@ -24,15 +27,18 @@ class StatutPrestataire(models.TextChoices):
 
 
 PREFIXES_CODE = {
+    TypePrestataire.HOPITAL: "HOP",
+    TypePrestataire.DISPENSAIRE: "DIS",
     TypePrestataire.PHARMACIE: "PHA",
-    TypePrestataire.ETABLISSEMENT: "ETB",
-    TypePrestataire.PRATICIEN: "PRA",
+    TypePrestataire.CLINIQUE: "CLI",
+    TypePrestataire.IMAGERIE: "IMA",
+    TypePrestataire.LABORATOIRE: "LAB",
 }
 
 
 class Prestataire(models.Model):
-    """Prestataire de santé conventionné : pharmacie, établissement médical
-    ou praticien."""
+    """Prestataire de santé conventionné : hôpital, dispensaire, pharmacie,
+    clinique, centre d'imagerie ou laboratoire."""
 
     code = models.CharField(max_length=20, unique=True, blank=True, editable=False)
     type_prestataire = models.CharField(max_length=20, choices=TypePrestataire.choices)

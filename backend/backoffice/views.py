@@ -1430,6 +1430,12 @@ class UtilisateurListe(ListeBase):
         # RH : la gestion des comptes est réservée au superuser, qui reste
         # seul juge de qui rejoint le service mutuelle. RH garde la lecture.
         contexte["peut_modifier"] = self.request.user.is_superuser
+        if not contexte["peut_modifier"]:
+            # Pas de fiche de consultation séparée ici : « Ouvrir » mène
+            # directement au formulaire de modification, réservé au
+            # superuser. Le masquer pour RH évite un clic qui finit en 403.
+            for ligne in contexte["lignes"]:
+                ligne["url"] = ""
         return contexte
 
 
@@ -1615,6 +1621,12 @@ class BaremeListe(ListeBase):
         # Le barème s'applique à toute la mutuelle : RH consulte, seul le
         # superuser modifie (voir BaremeCreer/Modifier/Supprimer).
         contexte["peut_modifier"] = self.request.user.is_superuser
+        if not contexte["peut_modifier"]:
+            # Pas de fiche de consultation séparée ici : « Ouvrir » mène
+            # directement au formulaire de modification, réservé au
+            # superuser. Le masquer pour RH évite un clic qui finit en 403.
+            for ligne in contexte["lignes"]:
+                ligne["url"] = ""
         return contexte
 
 

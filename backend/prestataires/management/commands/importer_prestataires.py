@@ -21,18 +21,20 @@ COLONNES_ATTENDUES = {"type", "nom"}
 
 # Le fichier fourni par la mutuelle peut employer les libellés français.
 TYPES = {
+    "hopital": TypePrestataire.HOPITAL,
+    "hôpital": TypePrestataire.HOPITAL,
+    "chri": TypePrestataire.HOPITAL,
+    "dispensaire": TypePrestataire.DISPENSAIRE,
     "pharmacie": TypePrestataire.PHARMACIE,
     "pharmacies": TypePrestataire.PHARMACIE,
-    "etablissement": TypePrestataire.ETABLISSEMENT,
-    "établissement": TypePrestataire.ETABLISSEMENT,
-    "clinique": TypePrestataire.ETABLISSEMENT,
-    "hopital": TypePrestataire.ETABLISSEMENT,
-    "hôpital": TypePrestataire.ETABLISSEMENT,
-    "centre medical": TypePrestataire.ETABLISSEMENT,
-    "centre médical": TypePrestataire.ETABLISSEMENT,
-    "praticien": TypePrestataire.PRATICIEN,
-    "medecin": TypePrestataire.PRATICIEN,
-    "médecin": TypePrestataire.PRATICIEN,
+    "clinique": TypePrestataire.CLINIQUE,
+    "centre medical": TypePrestataire.CLINIQUE,
+    "centre médical": TypePrestataire.CLINIQUE,
+    "imagerie": TypePrestataire.IMAGERIE,
+    "radiologie": TypePrestataire.IMAGERIE,
+    "laboratoire": TypePrestataire.LABORATOIRE,
+    "labo": TypePrestataire.LABORATOIRE,
+    "analyses": TypePrestataire.LABORATOIRE,
 }
 TYPES.update({valeur.lower(): valeur for valeur in TypePrestataire.values})
 
