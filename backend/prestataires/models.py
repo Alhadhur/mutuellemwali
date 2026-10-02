@@ -19,6 +19,7 @@ class TypePrestataire(models.TextChoices):
     CLINIQUE = "CLINIQUE", "Clinique"
     IMAGERIE = "IMAGERIE", "Imagerie"
     LABORATOIRE = "LABORATOIRE", "Laboratoire"
+    PRATICIEN = "PRATICIEN", "Praticien (médecin, urgentiste)"
 
 
 class StatutPrestataire(models.TextChoices):
@@ -33,6 +34,7 @@ PREFIXES_CODE = {
     TypePrestataire.CLINIQUE: "CLI",
     TypePrestataire.IMAGERIE: "IMA",
     TypePrestataire.LABORATOIRE: "LAB",
+    TypePrestataire.PRATICIEN: "PRA",
 }
 
 

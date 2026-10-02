@@ -35,6 +35,10 @@ TYPES = {
     "laboratoire": TypePrestataire.LABORATOIRE,
     "labo": TypePrestataire.LABORATOIRE,
     "analyses": TypePrestataire.LABORATOIRE,
+    "praticien": TypePrestataire.PRATICIEN,
+    "medecin": TypePrestataire.PRATICIEN,
+    "médecin": TypePrestataire.PRATICIEN,
+    "urgentiste": TypePrestataire.PRATICIEN,
 }
 TYPES.update({valeur.lower(): valeur for valeur in TypePrestataire.values})
 
