@@ -19,9 +19,14 @@
   .errorlist { color:#dc2626; font-size:12.5px; list-style:none; padding:0; margin:-8px 0 12px; }
   .champ-mdp { position:relative; display:block; margin-bottom:16px; }
   .champ-mdp input { padding-right:36px; margin-bottom:0; }
-  .champ-mdp__oeil { position:absolute; right:3px; top:50%; transform:translateY(-50%);
-                      border:none; background:none; cursor:pointer; font-size:15px;
-                      line-height:1; padding:5px 7px; border-radius:6px; }
+  /* La règle générique `button` ci-dessus (bouton Se connecter) s'appliquerait
+     sinon aussi à celui-ci : largeur 100%, fond bleu, etc. On neutralise tout
+     explicitement plutôt que de ne surcharger qu'une partie. */
+  .champ-mdp__oeil { position:absolute; right:4px; top:50%; transform:translateY(-50%);
+                      width:28px; height:28px; min-width:0;
+                      display:flex; align-items:center; justify-content:center;
+                      border:none; background:none; color:#6b7280; cursor:pointer;
+                      font-size:16px; font-weight:400; line-height:1; padding:0; border-radius:6px; }
   .champ-mdp__oeil:hover { background:#f3f4f6; }
 </style>
 </head>

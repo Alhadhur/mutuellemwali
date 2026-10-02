@@ -189,9 +189,11 @@
   /* --- Afficher/masquer un mot de passe --------------------------------- */
   .champ-mdp { position:relative; display:block; }
   .champ-mdp input { width:100%; padding-right:36px; }
-  .champ-mdp__oeil { position:absolute; right:3px; top:50%; transform:translateY(-50%);
-                      border:none; background:none; cursor:pointer; font-size:15px;
-                      line-height:1; padding:5px 7px; border-radius:6px; }
+  .champ-mdp__oeil { position:absolute; right:4px; top:50%; transform:translateY(-50%);
+                      width:28px; height:28px; min-width:0;
+                      display:flex; align-items:center; justify-content:center;
+                      border:none; background:none; color:var(--muted); cursor:pointer;
+                      font-size:16px; font-weight:400; line-height:1; padding:0; border-radius:6px; }
   .champ-mdp__oeil:hover { background:#f3f4f6; }
 </style>
 </head>
