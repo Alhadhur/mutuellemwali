@@ -51,7 +51,9 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
       _prestataireChoisi = prestataire;
       _natureChoisie = null;
     });
-    final natures = await ApiService.instance.getNaturesDeSoin(prestataireId: prestataire?.id);
+    final natures = await ApiService.instance.getNaturesDeSoin(
+      prestataireId: prestataire?.id,
+    );
     if (mounted) setState(() => _natures = natures);
   }
 
@@ -112,132 +114,184 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Soumettre une prescription')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            GestureDetector(
-              onTap: () => _afficherOptionsPhoto(context),
-              child: Container(
-                height: 180,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
+      // Sans elle, le bouton « Envoyer » (dernier élément de la liste) se
+      // retrouve sous la barre de navigation à trois boutons de certains
+      // téléphones (ex. Samsung Galaxy A17), au lieu de s'arrêter au-dessus.
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              GestureDetector(
+                onTap: () => _afficherOptionsPhoto(context),
+                child: Container(
+                  height: 180,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: _photo == null
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.add_a_photo_outlined,
+                              size: 36,
+                              color: Colors.grey.shade500,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Ajouter une photo de l\'ordonnance / facture (facultatif)',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ],
+                        )
+                      : ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.file(
+                            _photo!,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                          ),
+                        ),
                 ),
-                child: _photo == null
-                    ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.add_a_photo_outlined, size: 36, color: Colors.grey.shade500),
-                          const SizedBox(height: 8),
-                          Text('Ajouter une photo de l\'ordonnance / facture (facultatif)',
-                              style: TextStyle(color: Colors.grey.shade600)),
-                        ],
-                      )
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(_photo!, fit: BoxFit.cover, width: double.infinity),
-                      ),
               ),
-            ),
-            const SizedBox(height: 20),
-            FutureBuilder<List<Prestataire>>(
-              future: _futurePrestataires,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const LinearProgressIndicator();
-                }
-                return DropdownButtonFormField<Prestataire>(
-                  initialValue: _prestataireChoisi,
-                  decoration: const InputDecoration(labelText: 'Prestataire conventionné'),
-                  isExpanded: true,
-                  items: snapshot.data!
-                      .map((p) => DropdownMenuItem(
+              const SizedBox(height: 20),
+              FutureBuilder<List<Prestataire>>(
+                future: _futurePrestataires,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const LinearProgressIndicator();
+                  }
+                  return DropdownButtonFormField<Prestataire>(
+                    initialValue: _prestataireChoisi,
+                    decoration: const InputDecoration(
+                      labelText: 'Prestataire conventionné',
+                    ),
+                    isExpanded: true,
+                    items: snapshot.data!
+                        .map(
+                          (p) => DropdownMenuItem(
                             value: p,
-                            child: Text('${p.nom} (${p.typePrestataireDisplay})', overflow: TextOverflow.ellipsis),
-                          ))
-                      .toList(),
-                  onChanged: _choisirPrestataire,
-                );
-              },
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<NatureSoin>(
-              initialValue: _natureChoisie,
-              decoration: const InputDecoration(labelText: 'Nature du soin'),
-              isExpanded: true,
-              items: _natures
-                  .map((n) => DropdownMenuItem(
+                            child: Text(
+                              '${p.nom} (${p.typePrestataireDisplay})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: _choisirPrestataire,
+                  );
+                },
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<NatureSoin>(
+                initialValue: _natureChoisie,
+                decoration: const InputDecoration(labelText: 'Nature du soin'),
+                isExpanded: true,
+                items: _natures
+                    .map(
+                      (n) => DropdownMenuItem(
                         value: n,
                         child: Text(n.libelle, overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _natureChoisie = v),
-            ),
-            const SizedBox(height: 14),
-            if (_ayantsDroit.isNotEmpty)
-              DropdownButtonFormField<AyantDroit?>(
-                initialValue: _ayantDroitChoisi,
-                decoration: const InputDecoration(labelText: 'Bénéficiaire (vide = vous-même)'),
-                isExpanded: true,
-                items: [
-                  const DropdownMenuItem<AyantDroit?>(value: null, child: Text('Moi-même')),
-                  ..._ayantsDroit.map((a) => DropdownMenuItem(value: a, child: Text('${a.prenom} ${a.nom}'))),
-                ],
-                onChanged: (v) => setState(() => _ayantDroitChoisi = v),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => _natureChoisie = v),
               ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _numeroCtrl,
-              decoration: const InputDecoration(labelText: 'Numéro d\'ordonnance / acte'),
-              validator: (v) => (v == null || v.trim().isEmpty) ? 'Champ obligatoire' : null,
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _montantCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Coût total du soin (KMF)',
-                helperText: 'Le montant porté sur l\'ordonnance, avant prise en charge.',
-                helperMaxLines: 2,
+              const SizedBox(height: 14),
+              if (_ayantsDroit.isNotEmpty)
+                DropdownButtonFormField<AyantDroit?>(
+                  initialValue: _ayantDroitChoisi,
+                  decoration: const InputDecoration(
+                    labelText: 'Bénéficiaire (vide = vous-même)',
+                  ),
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem<AyantDroit?>(
+                      value: null,
+                      child: Text('Moi-même'),
+                    ),
+                    ..._ayantsDroit.map(
+                      (a) => DropdownMenuItem(
+                        value: a,
+                        child: Text('${a.prenom} ${a.nom}'),
+                      ),
+                    ),
+                  ],
+                  onChanged: (v) => setState(() => _ayantDroitChoisi = v),
+                ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _numeroCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Numéro d\'ordonnance / acte',
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Champ obligatoire'
+                    : null,
               ),
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Champ obligatoire';
-                final montant = int.tryParse(v.trim());
-                if (montant == null) return 'Montant invalide (entier en KMF)';
-                if (montant <= 0) return 'Le montant doit être supérieur à 0';
-                return null;
-              },
-            ),
-            const SizedBox(height: 10),
-            RepartitionPriseEnCharge(
-              prestataire: _prestataireChoisi,
-              natureSoin: _natureChoisie,
-              montantSaisi: _montantCtrl.text,
-            ),
-            const SizedBox(height: 14),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Date d\'émission'),
-              subtitle: Text('${_dateEmission.day.toString().padLeft(2, '0')}/${_dateEmission.month.toString().padLeft(2, '0')}/${_dateEmission.year}'),
-              trailing: const Icon(Icons.calendar_today_outlined),
-              onTap: _choisirDate,
-            ),
-            if (_erreur != null) ...[
-              const SizedBox(height: 8),
-              Text(_erreur!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _montantCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Coût total du soin (KMF)',
+                  helperText:
+                      'Le montant porté sur l\'ordonnance, avant prise en charge.',
+                  helperMaxLines: 2,
+                ),
+                keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Champ obligatoire';
+                  final montant = int.tryParse(v.trim());
+                  if (montant == null)
+                    return 'Montant invalide (entier en KMF)';
+                  if (montant <= 0) return 'Le montant doit être supérieur à 0';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              RepartitionPriseEnCharge(
+                prestataire: _prestataireChoisi,
+                natureSoin: _natureChoisie,
+                montantSaisi: _montantCtrl.text,
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Date d\'émission'),
+                subtitle: Text(
+                  '${_dateEmission.day.toString().padLeft(2, '0')}/${_dateEmission.month.toString().padLeft(2, '0')}/${_dateEmission.year}',
+                ),
+                trailing: const Icon(Icons.calendar_today_outlined),
+                onTap: _choisirDate,
+              ),
+              if (_erreur != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _erreur!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                ),
+              ],
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _envoiEnCours ? null : _soumettre,
+                child: _envoiEnCours
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Envoyer'),
+              ),
             ],
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _envoiEnCours ? null : _soumettre,
-              child: _envoiEnCours
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Envoyer'),
-            ),
-          ],
+          ),
         ),
       ),
     );
