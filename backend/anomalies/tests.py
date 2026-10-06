@@ -101,6 +101,59 @@ class SeuilsParametrablesTest(BaseAnomalies):
         self.assertEqual((fin - debut).days, 7)
 
 
+class DepassementQuotaTest(BaseAnomalies):
+    """Un agent déjà au-delà de son enveloppe (solde négatif) est un signal
+    plus grave qu'une simple approche du seuil : il doit apparaître dans
+    `agents_depasse_quota`, pas se noyer dans `agents_proche_quota`."""
+
+    def test_un_agent_sous_son_quota_n_est_signale_dans_aucune_des_deux_listes_de_depassement(self):
+        self.prescription(montant=5000, statut=StatutPrescription.VALIDEE)
+
+        self.assertEqual(services.agents_depasse_quota(), [])
+
+    def test_un_agent_au_dela_de_son_quota_est_signale_avec_le_bon_depassement(self):
+        # Quota de l'agent (tranche « sans conjoint, sans enfant ») : 21300 KMF.
+        # 30000 à 80 % remboursés = 24000, soit 2700 au-delà de l'enveloppe.
+        self.prescription(montant=30000, statut=StatutPrescription.VALIDEE)
+
+        resultats = services.agents_depasse_quota()
+
+        self.assertEqual(len(resultats), 1)
+        self.assertEqual(resultats[0]["agent"].pk, self.agent.pk)
+        self.assertEqual(resultats[0]["depassement"], 2700)
+
+    def test_un_agent_au_dela_de_son_quota_ne_figure_plus_parmi_les_agents_proches(self):
+        """Les deux familles restent disjointes, même avec un seuil d'alerte
+        très permissif : un agent ne doit pas apparaître dans les deux."""
+        parametres = Parametrage.charger()
+        parametres.seuil_alerte_quota = 100
+        parametres.save()
+        self.prescription(montant=30000, statut=StatutPrescription.VALIDEE)
+
+        self.assertEqual(services.agents_proche_quota(), [])
+        self.assertEqual(len(services.agents_depasse_quota()), 1)
+
+    def test_le_depassement_le_plus_eleve_vient_en_premier(self):
+        self.prescription(montant=30000, statut=StatutPrescription.VALIDEE)  # dépassement 2700
+
+        autre_compte = Utilisateur.objects.create_user("A0002", "x", nom="Autre", prenom="Agent", role=Role.AGENT)
+        autre_agent = Agent.objects.create(utilisateur=autre_compte, site="Moroni")
+        Prescription.objects.create(
+            agent=autre_agent,
+            prestataire=self.prestataire,
+            nature=self.nature,
+            numero_ordonnance="ORD-2",
+            montant_total=100000,  # remboursé 80000, dépassement 58700
+            date_emission=date.today(),
+            justificatif="x.jpg",
+            statut=StatutPrescription.VALIDEE,
+        )
+
+        resultats = services.agents_depasse_quota()
+
+        self.assertEqual([r["agent"].pk for r in resultats], [autre_agent.pk, self.agent.pk])
+
+
 class EcartsDeFacturationTest(BaseAnomalies):
     def test_seules_les_lignes_en_anomalie_sont_remontees(self):
         anormale = self.ligne_facture(statut=StatutLigne.ECART_TAUX)
@@ -176,7 +229,12 @@ class ExportTest(BaseAnomalies):
         reponse = self.client.get(reverse("backoffice:anomalies_export"))
 
         contenu = reponse.content.decode("utf-8-sig")
-        for titre in ("ÉCARTS DE FACTURATION", "PRESCRIPTIONS EN CONTRÔLE", "JUSTIFICATIFS EXPIRÉS"):
+        for titre in (
+            "ÉCARTS DE FACTURATION",
+            "PRESCRIPTIONS EN CONTRÔLE",
+            "JUSTIFICATIFS EXPIRÉS",
+            "AGENTS AYANT DÉPASSÉ LEUR QUOTA",
+        ):
             self.assertIn(titre, contenu)
 
     def test_l_export_rappelle_la_periode_et_son_auteur(self):

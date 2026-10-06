@@ -351,6 +351,7 @@ class TableauDeBordView(AccesBackoffice, TemplateView):
         contexte["pics"] = services.pics_de_consommation()
         contexte["prestataires_anormaux"] = services.prestataires_volume_anormal()
         contexte["agents_proche_quota"] = services.agents_proche_quota()
+        contexte["agents_depasse_quota"] = services.agents_depasse_quota()
         contexte["justificatifs_expires"] = services.ayants_droit_justificatif_expire()
 
         tendance = rapports_services.evolution_recente(6)

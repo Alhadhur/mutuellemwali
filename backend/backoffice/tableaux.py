@@ -116,8 +116,10 @@ TABLEAUX: tuple[Tableau, ...] = (
         cle="quota",
         titre="Agents proches de leur quota",
         description=(
-            "Agents dont l'enveloppe du cycle en cours est presque épuisée. "
-            "Lecture sur le cycle courant, indépendamment de la période choisie."
+            "Agents dont l'enveloppe du cycle en cours est presque épuisée, sans "
+            "toutefois être dépassée (voir « Agents ayant dépassé leur quota » "
+            "pour ceux-là). Lecture sur le cycle courant, indépendamment de la "
+            "période choisie."
         ),
         source=services.agents_proche_quota,
         suit_la_periode=False,
@@ -129,6 +131,26 @@ TABLEAUX: tuple[Tableau, ...] = (
             ("Consommé (KMF)", "consomme"),
             ("Solde (KMF)", "solde"),
             ("Reste (%)", "pourcentage_restant"),
+        ),
+    ),
+    Tableau(
+        cle="quota_depasse",
+        titre="Agents ayant dépassé leur quota",
+        description=(
+            "Agents dont la consommation du cycle en cours excède l'enveloppe "
+            "disponible (solde négatif) — un signal plus grave qu'une simple "
+            "approche du seuil. Lecture sur le cycle courant, indépendamment de "
+            "la période choisie."
+        ),
+        source=services.agents_depasse_quota,
+        suit_la_periode=False,
+        colonnes=(
+            ("Matricule", lambda o: o["agent"].matricule),
+            ("Agent", lambda o: o["agent"].utilisateur.get_full_name()),
+            ("Site", lambda o: o["agent"].site),
+            ("Enveloppe du cycle (KMF)", "quota"),
+            ("Consommé (KMF)", "consomme"),
+            ("Dépassement (KMF)", "depassement"),
         ),
     ),
     Tableau(

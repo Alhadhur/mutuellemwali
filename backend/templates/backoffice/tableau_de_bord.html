@@ -108,6 +108,25 @@
   </section>
 
   <section>
+    <h2>🚨 Agents ayant dépassé leur quota</h2>
+    {% if agents_depasse_quota %}
+    <table>
+      <tr><th>Agent</th><th>Quota (KMF)</th><th>Consommé</th><th>Dépassement</th></tr>
+      {% for r in agents_depasse_quota %}
+      <tr>
+        <td>{{ r.agent.utilisateur.matricule }} — {{ r.agent.utilisateur.get_full_name }}</td>
+        <td>{{ r.quota }}</td>
+        <td>{{ r.consomme }}</td>
+        <td><span class="badge badge-danger">+{{ r.depassement }} KMF</span></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">Aucun agent n'a dépassé son quota.</div>
+    {% endif %}
+  </section>
+
+  <section>
     <h2>📄 Justificatifs d'ayants droit expirés</h2>
     {% if justificatifs_expires %}
     <table>

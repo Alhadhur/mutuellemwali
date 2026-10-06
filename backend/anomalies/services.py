@@ -111,7 +111,11 @@ def prestataires_volume_anormal(debut=None, fin=None):
 
 
 def agents_proche_quota(debut=None, fin=None):
-    """Agents dont le solde du cycle en cours passe sous le seuil d'alerte.
+    """Agents dont le solde du cycle en cours passe sous le seuil d'alerte,
+    sans toutefois être négatif — une alerte préventive. Un agent déjà
+    au-delà de son enveloppe relève de `agents_depasse_quota`, pas de
+    celle-ci : les deux familles restent disjointes, pour qu'un même agent
+    n'apparaisse pas à double sur l'écran ni dans les exports.
 
     La période ne s'applique pas : le quota se lit toujours sur le cycle
     courant, borné par `Parametrage.periode()`.
@@ -123,6 +127,8 @@ def agents_proche_quota(debut=None, fin=None):
         if quota <= 0:
             continue
         solde = agent.solde_quota()
+        if solde < 0:
+            continue
         pourcentage_restant = (solde / quota) * 100
         if pourcentage_restant <= seuil_pourcentage:
             resultats.append(
@@ -135,6 +141,36 @@ def agents_proche_quota(debut=None, fin=None):
                 }
             )
     resultats.sort(key=lambda r: r["pourcentage_restant"])
+    return resultats
+
+
+def agents_depasse_quota(debut=None, fin=None):
+    """Agents dont la consommation du cycle en cours dépasse l'enveloppe
+    disponible (solde négatif) — un signal plus grave qu'une simple
+    approche du seuil (voir `agents_proche_quota`), qui mérite son propre
+    écran et son propre export plutôt que de se noyer dans la liste des
+    agents « proches » de leur quota.
+
+    La période ne s'applique pas : le quota se lit toujours sur le cycle
+    courant, borné par `Parametrage.periode()`.
+    """
+    resultats = []
+    for agent in Agent.objects.filter(actif=True).select_related("utilisateur"):
+        quota = agent.quota_effectif
+        if quota <= 0:
+            continue
+        solde = agent.solde_quota()
+        if solde >= 0:
+            continue
+        resultats.append(
+            {
+                "agent": agent,
+                "quota": quota,
+                "consomme": quota - solde,
+                "depassement": -solde,
+            }
+        )
+    resultats.sort(key=lambda r: -r["depassement"])
     return resultats
 
 
