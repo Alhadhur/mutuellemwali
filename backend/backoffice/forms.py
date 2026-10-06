@@ -154,14 +154,26 @@ class BasePrescriptionForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["prestataire"].queryset = Prestataire.objects.filter(statut="ACTIF")
+        self.fields["prestataire"].queryset = Prestataire.objects.filter(statut="ACTIF").prefetch_related(
+            "tarifs"
+        )
         # Une nature désactivée reste portée par l'historique mais n'est plus
         # proposée à la saisie.
         self.fields["nature"].queryset = NatureSoin.proposables()
         self.fields["nature"].empty_label = "— choisir —"
+        # Chaque prestataire a un taux général, mais certaines natures de
+        # soin sont tarifées différemment chez lui (voir Prestataire.taux_pour) :
+        # le JS doit pouvoir retrouver le bon taux selon la nature choisie,
+        # pas seulement selon le prestataire.
         self.taux_par_prestataire = json.dumps(
             {
-                str(prestataire.pk): float(prestataire.taux_prise_en_charge)
+                str(prestataire.pk): {
+                    "defaut": float(prestataire.taux_prise_en_charge),
+                    "natures": {
+                        str(tarif.nature_soin_id): float(tarif.taux_prise_en_charge)
+                        for tarif in prestataire.tarifs.all()
+                    },
+                }
                 for prestataire in self.fields["prestataire"].queryset
             }
         )

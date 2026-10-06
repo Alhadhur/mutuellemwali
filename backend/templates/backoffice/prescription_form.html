@@ -62,11 +62,26 @@ fur et à mesure de la saisie.
 
   // Répartition entre la part de l'agent et celle de la mutuelle.
   const selectPrestataire = document.getElementById('{{ form.prestataire.auto_id }}');
+  const selectNature = document.getElementById('{{ form.nature.auto_id }}');
   const champMontant = document.getElementById('{{ form.montant_total.auto_id }}');
   const repartition = document.getElementById('repartition');
 
+  // Le taux dépend du prestataire ET de la nature choisie (une consultation
+  // ne coûte pas comme une chirurgie) : voir Prestataire.taux_pour côté
+  // serveur. Sans nature choisie, ou pour une nature non détaillée chez ce
+  // prestataire, on retombe sur son taux général.
+  function tauxApplicable() {
+    const info = TAUX[selectPrestataire.value];
+    if (!info) return null;
+    const natureId = selectNature.value;
+    if (natureId && Object.prototype.hasOwnProperty.call(info.natures, natureId)) {
+      return info.natures[natureId];
+    }
+    return info.defaut;
+  }
+
   function majRepartition() {
-    const taux = TAUX[selectPrestataire.value];
+    const taux = tauxApplicable();
     const total = parseInt(champMontant.value, 10);
     if (!taux || !total || total <= 0) {
       repartition.innerHTML = '<span class="muet">Choisissez un prestataire et saisissez le coût pour voir la répartition.</span>';
@@ -82,14 +97,21 @@ fur et à mesure de la saisie.
   // Prestataire.natures_proposees) : un prestataire non détaillé garde la
   // liste complète rendue par le serveur, inutile d'y toucher.
   const URL_NATURES = "{% url 'backoffice:recherche_natures_prestataire' 0 %}";
-  const selectNature = document.getElementById('{{ form.nature.auto_id }}');
+  let dernierePrestataireDemandee = null;
 
   async function chargerNatures(prestataireId) {
     if (!prestataireId) return;
+    dernierePrestataireDemandee = prestataireId;
     const selectionActuelle = selectNature.value;
     const optionActuelle = selectNature.querySelector('option[value="' + selectionActuelle + '"]');
     const reponse = await fetch(URL_NATURES.replace('/0/', '/' + prestataireId + '/'));
     const donnees = await reponse.json();
+    // Un changement de prestataire plus récent peut démarrer pendant cette
+    // requête : une réponse qui arrive après ne doit pas écraser une
+    // sélection déjà plus à jour, sinon la liste affichée dépend de l'ordre
+    // d'arrivée réseau et non du dernier choix de l'utilisateur — c'est ce
+    // qui donnait l'impression qu'il fallait réessayer plusieurs fois.
+    if (prestataireId !== dernierePrestataireDemandee) return;
     selectNature.innerHTML = '<option value="">— choisir —</option>';
     for (const nature of donnees.resultats) {
       const option = document.createElement('option');
@@ -106,12 +128,15 @@ fur et à mesure de la saisie.
       }
       selectNature.value = selectionActuelle;
     }
+    // La liste des natures vient de changer : le taux affiché doit suivre.
+    majRepartition();
   }
 
   selectPrestataire.addEventListener('change', () => {
     majRepartition();
     chargerNatures(selectPrestataire.value);
   });
+  selectNature.addEventListener('change', majRepartition);
   champMontant.addEventListener('input', majRepartition);
 
   chargerAyantsDroit(selectAgent.value);
