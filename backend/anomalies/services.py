@@ -14,9 +14,9 @@ from statistics import mean, pstdev
 from django.db.models import Count, Sum
 from django.utils import timezone
 
-from beneficiaires.models import Agent, AyantDroit
+from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification
 from facturation.models import LigneFacture, StatutLigne
-from parametrage.models import Parametrage
+from parametrage.models import Parametrage, TrancheQuota
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire
 
@@ -110,6 +110,60 @@ def prestataires_volume_anormal(debut=None, fin=None):
     return volumes
 
 
+def _etat_quotas_agents():
+    """État de quota (enveloppe, solde) de chaque agent actif, en un nombre
+    de requêtes indépendant du nombre d'agents.
+
+    `Agent.solde_quota()` convient très bien pour un agent isolé (sa fiche,
+    son tableau de bord personnel), mais rappelé en boucle sur tous les
+    agents actifs il refait, pour chacun, une requête sur `Parametrage`, une
+    sur le barème des tranches et une par ayant droit — ce qui, cumulé sur
+    les deux familles de ce module à chaque chargement du tableau de bord
+    anomalies, a fini par dépasser le délai du serveur en production. Cette
+    fonction recalcule la même règle (voir `Agent.quota_effectif` et
+    `Agent.solde_quota`) à partir de données chargées une seule fois.
+    """
+    parametres = Parametrage.charger()
+    debut, fin = parametres.periode()
+    duree_cycle = max(1, parametres.duree_cycle_mois)
+    age_limite_enfant = parametres.age_limite_enfant
+    tranches = list(TrancheQuota.objects.all())
+
+    consommation_par_agent = dict(
+        Prescription.objects.filter(
+            statut=StatutPrescription.VALIDEE,
+            date_emission__gte=debut,
+            date_emission__lte=fin,
+            agent__actif=True,
+        )
+        .values("agent_id")
+        .annotate(total=Sum("montant_rembourse"))
+        .values_list("agent_id", "total")
+    )
+
+    resultats = []
+    for agent in Agent.objects.filter(actif=True).select_related("utilisateur").prefetch_related("ayants_droit"):
+        couverts = [
+            a
+            for a in agent.ayants_droit.all()
+            if a.statut_verification == StatutVerification.VALIDE
+            and not a.limite_age_depassee_pour(age_limite_enfant)
+        ]
+        avec_conjoint = any(a.lien_parente == LienParente.CONJOINT for a in couverts)
+        nombre_enfants = sum(1 for a in couverts if a.lien_parente == LienParente.ENFANT)
+
+        quota_mensuel = parametres.quota_mensuel_defaut
+        for tranche in tranches:
+            if tranche.correspond(avec_conjoint, nombre_enfants):
+                quota_mensuel = tranche.montant
+                break
+
+        quota = quota_mensuel * duree_cycle
+        solde = quota - consommation_par_agent.get(agent.id, 0)
+        resultats.append({"agent": agent, "quota": quota, "solde": solde})
+    return resultats
+
+
 def agents_proche_quota(debut=None, fin=None):
     """Agents dont le solde du cycle en cours passe sous le seuil d'alerte,
     sans toutefois être négatif — une alerte préventive. Un agent déjà
@@ -122,18 +176,15 @@ def agents_proche_quota(debut=None, fin=None):
     """
     seuil_pourcentage = Parametrage.charger().seuil_alerte_quota
     resultats = []
-    for agent in Agent.objects.filter(actif=True).select_related("utilisateur"):
-        quota = agent.quota_effectif
-        if quota <= 0:
-            continue
-        solde = agent.solde_quota()
-        if solde < 0:
+    for etat in _etat_quotas_agents():
+        quota, solde = etat["quota"], etat["solde"]
+        if quota <= 0 or solde < 0:
             continue
         pourcentage_restant = (solde / quota) * 100
         if pourcentage_restant <= seuil_pourcentage:
             resultats.append(
                 {
-                    "agent": agent,
+                    "agent": etat["agent"],
                     "quota": quota,
                     "consomme": quota - solde,
                     "solde": solde,
@@ -155,16 +206,13 @@ def agents_depasse_quota(debut=None, fin=None):
     courant, borné par `Parametrage.periode()`.
     """
     resultats = []
-    for agent in Agent.objects.filter(actif=True).select_related("utilisateur"):
-        quota = agent.quota_effectif
-        if quota <= 0:
-            continue
-        solde = agent.solde_quota()
-        if solde >= 0:
+    for etat in _etat_quotas_agents():
+        quota, solde = etat["quota"], etat["solde"]
+        if quota <= 0 or solde >= 0:
             continue
         resultats.append(
             {
-                "agent": agent,
+                "agent": etat["agent"],
                 "quota": quota,
                 "consomme": quota - solde,
                 "depassement": -solde,

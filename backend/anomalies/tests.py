@@ -8,11 +8,13 @@ import csv
 import io
 from datetime import date, timedelta
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from accounts.models import Role, Utilisateur
-from beneficiaires.models import Agent
+from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
 from facturation.models import Facture, LigneFacture, StatutLigne
 from parametrage.models import NatureSoin, Parametrage
 from prescriptions.models import Prescription, StatutPrescription
@@ -152,6 +154,51 @@ class DepassementQuotaTest(BaseAnomalies):
         resultats = services.agents_depasse_quota()
 
         self.assertEqual([r["agent"].pk for r in resultats], [autre_agent.pk, self.agent.pk])
+
+
+class PerformanceCalculDesQuotasTest(BaseAnomalies):
+    """Le nombre de requêtes de ces deux familles ne doit pas dépendre du
+    nombre d'agents : c'est exactement la régression qui a fini par dépasser
+    le délai du serveur en production (voir `services._etat_quotas_agents`),
+    une fois les deux familles calculées à chaque chargement du tableau de
+    bord anomalies."""
+
+    def setUp(self):
+        super().setUp()
+        for i in range(20):
+            compte = Utilisateur.objects.create_user(
+                f"PERF{i:03d}", "x", nom="Perf", prenom=f"Agent{i}", role=Role.AGENT
+            )
+            agent = Agent.objects.create(utilisateur=compte, site="Moroni")
+            AyantDroit.objects.create(
+                agent=agent,
+                nom="Enfant",
+                prenom=f"Perf{i}",
+                lien_parente=LienParente.ENFANT,
+                date_naissance=date(2015, 1, 1),
+                type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+                justificatif="x.jpg",
+                statut_verification=StatutVerification.VALIDE,
+            )
+            Prescription.objects.create(
+                agent=agent,
+                prestataire=self.prestataire,
+                nature=self.nature,
+                numero_ordonnance=f"PERF-{i}",
+                montant_total=5000,
+                date_emission=date.today(),
+                justificatif="x.jpg",
+                statut=StatutPrescription.VALIDEE,
+            )
+
+    def test_le_nombre_de_requetes_ne_depend_pas_du_nombre_d_agents(self):
+        with CaptureQueriesContext(connection) as requetes:
+            services.agents_proche_quota()
+        self.assertLessEqual(len(requetes), 8, requetes.captured_queries)
+
+        with CaptureQueriesContext(connection) as requetes:
+            services.agents_depasse_quota()
+        self.assertLessEqual(len(requetes), 8, requetes.captured_queries)
 
 
 class EcartsDeFacturationTest(BaseAnomalies):

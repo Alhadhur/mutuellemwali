@@ -214,9 +214,16 @@ class AyantDroit(models.Model):
         atteint l'âge limite (convention de la mutuelle) — pas dès son
         anniversaire. Exemple : 18 ans le 12/07/2026, couvert jusqu'au
         31/12/2026, plus couvert à partir du 01/01/2027."""
+        return self.limite_age_depassee_pour(self.age_limite)
+
+    def limite_age_depassee_pour(self, age_limite_enfant):
+        """Même règle que `limite_age_depassee`, mais sans relire
+        `Parametrage` à chaque appel : réservé aux parcours qui évaluent déjà
+        beaucoup d'ayants droit (voir `anomalies.services`), où rappeler la
+        propriété reviendrait à refaire la même requête des centaines de fois."""
         if self.lien_parente != LienParente.ENFANT or not self.date_naissance:
             return False
-        annee_limite = self.date_naissance.year + self.age_limite
+        annee_limite = self.date_naissance.year + age_limite_enfant
         return timezone.localdate().year > annee_limite
 
     def consommation_periode(self, reference=None):
