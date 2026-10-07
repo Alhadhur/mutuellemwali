@@ -171,7 +171,6 @@ class SaisieManuelleTest(BasePrescriptions):
             "ayant_droit": "",
             "prestataire": self.prestataire.pk,
             "nature": NatureSoin.objects.get(libelle="Consultation").pk,
-            "numero_ordonnance": "ORD-PAPIER-1",
             "montant_total": "10000",
             "date_emission": date.today().isoformat(),
             "justificatif": SimpleUploadedFile("scan.jpg", b"contenu", content_type="image/jpeg"),
@@ -185,13 +184,23 @@ class SaisieManuelleTest(BasePrescriptions):
 
         self.client.post("/backoffice/prescriptions/nouvelle/", donnees)
 
-        prescription = Prescription.objects.get(numero_ordonnance="ORD-PAPIER-1")
+        prescription = Prescription.objects.get()
         self.assertFalse(prescription.justificatif)
+
+    def test_le_numero_d_ordonnance_est_genere_automatiquement(self):
+        """Le champ n'est plus saisi : il n'a donc plus à être fiable ou
+        cohérent d'un prestataire à l'autre, contrairement au numéro inscrit
+        sur le papier qu'il remplace."""
+        self.client.post("/backoffice/prescriptions/nouvelle/", self.donnees())
+
+        prescription = Prescription.objects.get()
+        annee = date.today().year
+        self.assertEqual(prescription.numero_ordonnance, f"ORD-{annee}-000001")
 
     def test_la_saisie_enregistre_l_auteur_et_calcule_le_remboursement(self):
         self.client.post("/backoffice/prescriptions/nouvelle/", self.donnees())
 
-        prescription = Prescription.objects.get(numero_ordonnance="ORD-PAPIER-1")
+        prescription = Prescription.objects.get()
         self.assertEqual(prescription.soumis_par, self.rh)
         self.assertEqual(prescription.montant_rembourse, 8000)
         self.assertEqual(prescription.statut, StatutPrescription.SOUMISE)
@@ -208,7 +217,7 @@ class SaisieManuelleTest(BasePrescriptions):
 
         self.client.post("/backoffice/prescriptions/nouvelle/", self.donnees())
 
-        saisie = Prescription.objects.filter(numero_ordonnance="ORD-PAPIER-1").latest("date_creation")
+        saisie = Prescription.objects.latest("date_creation")
         self.assertEqual(saisie.statut, StatutPrescription.EN_CONTROLE)
         self.assertIn("Doublon", saisie.motif_signalement)
 

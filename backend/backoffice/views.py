@@ -427,8 +427,12 @@ class MaPrescriptionCreer(AccesAgent, CreateView):
     def form_valid(self, form):
         form.instance.agent = self.request.user.agent
         form.instance.soumis_par = self.request.user
-        messages.success(self.request, f"{self.titre} : enregistrement effectué.")
-        return super().form_valid(form)
+        reponse = super().form_valid(form)
+        messages.success(
+            self.request,
+            f"{self.titre} : enregistrement effectué sous le numéro {self.object.numero_ordonnance}.",
+        )
+        return reponse
 
     def get_success_url(self):
         return reverse("backoffice:mon_tableau_de_bord")

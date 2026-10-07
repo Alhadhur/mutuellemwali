@@ -48,7 +48,11 @@ class Prescription(models.Model):
         help_text="Type de prestation reçue : consultation, pharmacie, hospitalisation…",
     )
 
-    numero_ordonnance = models.CharField(max_length=100)
+    numero_ordonnance = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Référence interne générée automatiquement à la saisie.",
+    )
     montant_total = models.PositiveIntegerField(help_text="Montant en KMF (sans décimale).")
     montant_rembourse = models.PositiveIntegerField(editable=False, default=0)
     date_emission = models.DateField()
@@ -114,6 +118,22 @@ class Prescription(models.Model):
 
         return (meme_numero | meme_montant).distinct()
 
+    def _generer_numero_ordonnance(self):
+        """Référence interne générée à la saisie, au format ORD-<année>-<séquence> :
+        remplace la saisie manuelle du numéro inscrit sur le papier, trop peu
+        fiable en pratique (souvent absent ou incohérent d'un prestataire à
+        l'autre). Un import d'historique qui connaît ce numéro papier (voir
+        importer_prescriptions) continue de le porter tel quel — seule une
+        création sans numéro déjà fourni en reçoit un ici."""
+        prefixe = f"ORD-{timezone.now().year}-"
+        dernier = (
+            Prescription.objects.filter(numero_ordonnance__startswith=prefixe)
+            .order_by("-numero_ordonnance")
+            .first()
+        )
+        dernier_seq = int(dernier.numero_ordonnance[len(prefixe):]) if dernier else 0
+        return f"{prefixe}{dernier_seq + 1:06d}"
+
     def calculer_montant_rembourse(self):
         taux = self.prestataire.taux_pour(self.nature)
         montant = Decimal(self.montant_total) * taux / Decimal("100")
@@ -139,6 +159,9 @@ class Prescription(models.Model):
         ancien_statut = None
         if not est_nouvelle:
             ancien_statut = Prescription.objects.get(pk=self.pk).statut
+
+        if est_nouvelle and not self.numero_ordonnance:
+            self.numero_ordonnance = self._generer_numero_ordonnance()
 
         if detecter:
             eligible = self.prestataire.est_actif and not self.ayant_droit_hors_couverture

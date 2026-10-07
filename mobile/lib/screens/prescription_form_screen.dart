@@ -16,7 +16,6 @@ class PrescriptionFormScreen extends StatefulWidget {
 
 class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _numeroCtrl = TextEditingController();
   final _montantCtrl = TextEditingController();
 
   late Future<List<Prestataire>> _futurePrestataires;
@@ -93,7 +92,6 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
         prestataireId: _prestataireChoisi!.id,
         ayantDroitId: _ayantDroitChoisi?.id,
         natureId: _natureChoisie!.id,
-        numeroOrdonnance: _numeroCtrl.text.trim(),
         montantTotal: int.parse(_montantCtrl.text.trim()),
         dateEmission: _dateEmission,
         justificatif: _photo,
@@ -223,16 +221,6 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
                   ],
                   onChanged: (v) => setState(() => _ayantDroitChoisi = v),
                 ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _numeroCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Numéro d\'ordonnance / acte',
-                ),
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Champ obligatoire'
-                    : null,
-              ),
               const SizedBox(height: 14),
               TextFormField(
                 controller: _montantCtrl,

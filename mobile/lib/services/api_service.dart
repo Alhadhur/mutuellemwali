@@ -207,7 +207,6 @@ class ApiService {
     required int prestataireId,
     int? ayantDroitId,
     required int natureId,
-    required String numeroOrdonnance,
     required int montantTotal,
     required DateTime dateEmission,
     File? justificatif,
@@ -220,7 +219,6 @@ class ApiService {
       request.fields['prestataire'] = prestataireId.toString();
       if (ayantDroitId != null) request.fields['ayant_droit'] = ayantDroitId.toString();
       request.fields['nature'] = natureId.toString();
-      request.fields['numero_ordonnance'] = numeroOrdonnance;
       request.fields['montant_total'] = montantTotal.toString();
       request.fields['date_emission'] =
           '${dateEmission.year.toString().padLeft(4, '0')}-${dateEmission.month.toString().padLeft(2, '0')}-${dateEmission.day.toString().padLeft(2, '0')}';

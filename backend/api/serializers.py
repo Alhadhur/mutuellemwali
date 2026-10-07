@@ -194,7 +194,7 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "date_creation",
             "historique",
         ]
-        read_only_fields = ["montant_rembourse", "statut", "motif_signalement", "date_creation"]
+        read_only_fields = ["numero_ordonnance", "montant_rembourse", "statut", "motif_signalement", "date_creation"]
 
     def get_beneficiaire_nom(self, obj):
         return str(obj.beneficiaire())

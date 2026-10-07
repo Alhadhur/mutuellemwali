@@ -177,7 +177,6 @@ class MaPrescriptionCreerTest(BaseBackoffice):
         donnees = {
             "prestataire": self.prestataire.pk,
             "nature": self.nature.pk,
-            "numero_ordonnance": "H-42",
             "montant_total": "10000",
             "date_emission": "2026-01-05",
         }
@@ -196,9 +195,10 @@ class MaPrescriptionCreerTest(BaseBackoffice):
 
         reponse = self.client.post(reverse("backoffice:ma_prescription_creer"), self._donnees())
 
-        prescription = Prescription.objects.get(numero_ordonnance="H-42")
+        prescription = Prescription.objects.exclude(pk=self.prescription.pk).get()
         self.assertEqual(prescription.agent, self.agent)
         self.assertEqual(prescription.soumis_par, self.compte_agent)
+        self.assertTrue(prescription.numero_ordonnance)
         self.assertRedirects(reponse, reverse("backoffice:mon_tableau_de_bord"))
 
     def test_l_agent_peut_saisir_pour_un_de_ses_ayants_droit(self):
@@ -206,7 +206,7 @@ class MaPrescriptionCreerTest(BaseBackoffice):
 
         self.client.post(reverse("backoffice:ma_prescription_creer"), self._donnees(ayant_droit=self.ayant_droit.pk))
 
-        prescription = Prescription.objects.get(numero_ordonnance="H-42")
+        prescription = Prescription.objects.exclude(pk=self.prescription.pk).get()
         self.assertEqual(prescription.ayant_droit, self.ayant_droit)
 
     def test_l_agent_ne_peut_pas_saisir_pour_l_ayant_droit_d_un_autre(self):
@@ -224,7 +224,7 @@ class MaPrescriptionCreerTest(BaseBackoffice):
             reverse("backoffice:ma_prescription_creer"), self._donnees(ayant_droit=autre_ayant_droit.pk)
         )
 
-        self.assertFalse(Prescription.objects.filter(numero_ordonnance="H-42").exists())
+        self.assertEqual(Prescription.objects.count(), 1)  # seulement celle de BaseBackoffice.setUp
 
 
 class ListesTest(BaseBackoffice):
@@ -568,7 +568,6 @@ class PrescriptionModifierTest(BaseBackoffice):
             "agent": self.agent.pk,
             "prestataire": self.prestataire.pk,
             "nature": self.nature.pk,
-            "numero_ordonnance": "ORD-1-CORRIGE",
             "montant_total": "15000",
             "date_emission": "2026-01-05",
         }
@@ -582,7 +581,8 @@ class PrescriptionModifierTest(BaseBackoffice):
 
         self.assertRedirects(reponse, reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
         self.prescription.refresh_from_db()
-        self.assertEqual(self.prescription.numero_ordonnance, "ORD-1-CORRIGE")
+        # Généré à la création, pas modifiable depuis ce formulaire.
+        self.assertEqual(self.prescription.numero_ordonnance, "ORD-1")
         self.assertEqual(self.prescription.montant_total, 15000)
         self.assertEqual(self.prescription.montant_rembourse, 12000)
 

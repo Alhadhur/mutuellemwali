@@ -36,7 +36,7 @@ class PrescriptionAdmin(admin.ModelAdmin):
     ]
     list_filter = ["statut", "prestataire__type_prestataire", "prestataire"]
     search_fields = ["numero_ordonnance", "agent__utilisateur__matricule", "agent__utilisateur__nom"]
-    readonly_fields = ["montant_rembourse", "motif_signalement", "date_creation", "date_maj"]
+    readonly_fields = ["numero_ordonnance", "montant_rembourse", "motif_signalement", "date_creation", "date_maj"]
     autocomplete_fields = ["agent", "ayant_droit", "prestataire"]
     inlines = [HistoriqueStatutInline]
     actions = ["valider", "rejeter", "remettre_en_controle"]
