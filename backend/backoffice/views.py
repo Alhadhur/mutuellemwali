@@ -937,14 +937,19 @@ class PrescriptionDetail(AccesBackoffice, DetailView):
         contexte = super().get_context_data(**kwargs)
         contexte["historique"] = self.object.historique.select_related("utilisateur")
         contexte["doublons"] = self.object.detecter_doublons().select_related("prestataire")
-        contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        est_rh_ou_superuser = self.request.user.role == Role.RH or self.request.user.is_superuser
+        statut_modifiable = self.object.statut not in STATUTS_MANUELS
+        # Changer le statut (valider/rejeter/remettre en contrôle) reste
+        # possible à tout moment pour corriger une décision — seule l'édition
+        # des champs (PrescriptionModifier) et la suppression se bloquent une
+        # fois la prescription validée ou rejetée.
+        contexte["peut_modifier"] = est_rh_ou_superuser
+        contexte["peut_modifier_champs"] = est_rh_ou_superuser and statut_modifiable
         contexte["statuts"] = StatutPrescription.choices
         # Suppression réservée au superuser (voir PrescriptionSupprimer) : RH
         # garde la création/modification, pas l'effacement d'une pièce déjà
         # soumise.
-        contexte["peut_supprimer"] = (
-            self.object.statut not in STATUTS_MANUELS and self.request.user.is_superuser
-        )
+        contexte["peut_supprimer"] = statut_modifiable and self.request.user.is_superuser
         return contexte
 
 

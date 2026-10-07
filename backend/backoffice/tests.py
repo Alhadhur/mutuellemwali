@@ -636,6 +636,41 @@ class PrescriptionSupprimerTest(BaseBackoffice):
         self.assertTrue(Prescription.objects.filter(pk=self.prescription.pk).exists())
 
 
+class PrescriptionDetailActionsTest(BaseBackoffice):
+    """Le lien « Modifier » de la fiche ne doit pas dépendre du droit de
+    supprimer (réservé au superuser) : le RH modifie, seule la suppression
+    lui reste fermée."""
+
+    def _url_modifier(self):
+        return reverse("backoffice:prescription_modifier", args=[self.prescription.pk])
+
+    def test_le_rh_voit_le_lien_modifier_sur_une_prescription_soumise(self):
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+
+        self.assertContains(reponse, self._url_modifier())
+
+    def test_le_lien_modifier_disparait_une_fois_la_prescription_decidee(self):
+        self.prescription.changer_statut(StatutPrescription.VALIDEE, utilisateur=self.rh)
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+
+        self.assertNotContains(reponse, self._url_modifier())
+
+    def test_le_rh_garde_la_main_sur_le_changement_de_statut_meme_decidee(self):
+        """Valider/rejeter/remettre en contrôle reste possible à tout moment
+        pour corriger une décision — contrairement à l'édition des champs et
+        à la suppression."""
+        self.prescription.changer_statut(StatutPrescription.VALIDEE, utilisateur=self.rh)
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+
+        self.assertContains(reponse, reverse("backoffice:prescription_statut", args=[self.prescription.pk]))
+
+
 class AyantDroitTest(BaseBackoffice):
     def setUp(self):
         super().setUp()
