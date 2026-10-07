@@ -34,7 +34,7 @@
     <div><span>Soumise le</span><strong>{{ prescription.date_creation|date:"d/m/Y H:i" }}</strong></div>
     <div><span>Statut</span><strong>{{ prescription.get_statut_display }}</strong></div>
   </div>
-  {% if prescription.motif_signalement %}
+  {% if motif_actif and prescription.motif_signalement %}
     <div style="padding:0 18px 18px;">
       <div class="erreurs-globales">⚠ {{ prescription.motif_signalement }}</div>
     </div>

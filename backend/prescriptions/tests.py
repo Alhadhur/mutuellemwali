@@ -220,6 +220,11 @@ class SaisieManuelleTest(BasePrescriptions):
         saisie = Prescription.objects.latest("date_creation")
         self.assertEqual(saisie.statut, StatutPrescription.EN_CONTROLE)
         self.assertIn("Doublon", saisie.motif_signalement)
+        # Le bandeau d'alerte de la fiche ne montre ce motif que tant que la
+        # prescription reste « En contrôle » (voir PrescriptionDetail) : la
+        # raison du signalement doit donc aussi vivre dans l'historique, pour
+        # rester consultable une fois la décision prise et le bandeau disparu.
+        self.assertIn("Doublon", saisie.historique.first().commentaire)
 
 
 class AyantDroitHorsCouvertureTest(BasePrescriptions):

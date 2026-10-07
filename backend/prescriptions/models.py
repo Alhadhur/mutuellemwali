@@ -192,12 +192,21 @@ class Prescription(models.Model):
         super().save(*args, **kwargs)
 
         if est_nouvelle:
+            commentaire = "Soumission initiale." if detecter else "Reprise d'historique (import)."
+            if detecter and self.motif_signalement:
+                # Conservé ici tel quel : le bandeau d'alerte de la fiche ne
+                # montre ce motif que tant que la prescription reste « En
+                # contrôle » (voir PrescriptionDetail.motif_actif), pour ne
+                # pas laisser une alerte obsolète une fois la décision prise
+                # — mais la raison du signalement doit rester consultable
+                # dans l'historique, pas disparaître avec le bandeau.
+                commentaire = f"{commentaire} {self.motif_signalement}"
             HistoriqueStatut.objects.create(
                 prescription=self,
                 ancien_statut="",
                 nouveau_statut=self.statut,
                 utilisateur=self.soumis_par,
-                commentaire="Soumission initiale." if detecter else "Reprise d'historique (import).",
+                commentaire=commentaire,
             )
         elif ancien_statut and ancien_statut != self.statut:
             HistoriqueStatut.objects.create(

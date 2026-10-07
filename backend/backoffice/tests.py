@@ -670,6 +670,23 @@ class PrescriptionDetailActionsTest(BaseBackoffice):
 
         self.assertContains(reponse, reverse("backoffice:prescription_statut", args=[self.prescription.pk]))
 
+    def test_le_bandeau_d_alerte_disparait_une_fois_la_prescription_tranchee(self):
+        """Le motif est écrit une fois, à la détection, et ne se recalcule
+        jamais : une fois la décision prise (ou la pièce en cause
+        supprimée), le bandeau ne doit pas continuer à citer une alerte
+        devenue obsolète — la raison reste consultable dans l'historique."""
+        self.prescription.motif_signalement = "Doublon potentiel détecté avec ORD-AUTRE."
+        self.prescription.statut = StatutPrescription.EN_CONTROLE
+        self.prescription.save(update_fields=["motif_signalement", "statut"])
+        self.client.force_login(self.rh)
+
+        avant = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+        self.assertContains(avant, "Doublon potentiel")
+
+        self.prescription.changer_statut(StatutPrescription.VALIDEE, utilisateur=self.rh)
+        apres = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+        self.assertNotContains(apres, "Doublon potentiel")
+
 
 class AyantDroitTest(BaseBackoffice):
     def setUp(self):

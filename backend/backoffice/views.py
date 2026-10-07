@@ -937,6 +937,13 @@ class PrescriptionDetail(AccesBackoffice, DetailView):
         contexte = super().get_context_data(**kwargs)
         contexte["historique"] = self.object.historique.select_related("utilisateur")
         contexte["doublons"] = self.object.detecter_doublons().select_related("prestataire")
+        # Le motif est écrit une fois, à la détection : il reste donc en
+        # l'état même après que la pièce qu'il citait a été supprimée ou que
+        # la décision a été prise. Tant que la prescription est encore
+        # « En contrôle » (le signalement est actionnable), on l'affiche ;
+        # une fois tranchée, l'historique ci-dessous garde la trace sans
+        # laisser une alerte obsolète en haut de la fiche.
+        contexte["motif_actif"] = self.object.statut == StatutPrescription.EN_CONTROLE
         est_rh_ou_superuser = self.request.user.role == Role.RH or self.request.user.is_superuser
         statut_modifiable = self.object.statut not in STATUTS_MANUELS
         # Changer le statut (valider/rejeter/remettre en contrôle) reste
