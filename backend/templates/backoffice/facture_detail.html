@@ -187,25 +187,60 @@
       if (!champMatricule || !suggestions) return;
 
       const URL_AGENTS = "{% url 'backoffice:recherche_agents' %}";
+      // Même endpoint que la saisie de prescription (voir _recherche_agent.html) :
+      // le bénéficiaire d'une facture est soit l'agent lui-même, soit un de
+      // ses ayants droit — il faut donc proposer les deux une fois l'agent
+      // identifié, pas seulement remplir son propre nom.
+      const URL_AYANTS_DROIT = "{% url 'backoffice:recherche_ayants_droit' 0 %}";
       let minuteur = null;
 
-      async function chercher(texte) {
+      function boutonSuggestion(contenu, onClick) {
+        const bouton = document.createElement('button');
+        bouton.type = 'button';
+        bouton.innerHTML = contenu;
+        bouton.addEventListener('click', onClick);
+        suggestions.appendChild(bouton);
+        return bouton;
+      }
+
+      function choisirBeneficiaire(nom) {
+        if (champNom) champNom.value = nom;
+        suggestions.innerHTML = '';
+      }
+
+      async function afficherBeneficiaires(agent) {
+        champMatricule.value = agent.matricule;
+        suggestions.innerHTML = '';
+        boutonSuggestion(
+          '<span class="nom"></span><div class="site">Lui-même</div>',
+          () => choisirBeneficiaire(agent.nom)
+        ).querySelector('.nom').textContent = agent.nom;
+
+        const reponse = await fetch(URL_AYANTS_DROIT.replace('/0/', '/' + agent.id + '/'));
+        const donnees = await reponse.json();
+        for (const ayantDroit of donnees.resultats) {
+          const nom = ayantDroit.libelle.replace(/\s*\([^)]*\)$/, '');
+          const bouton = boutonSuggestion(
+            '<span class="nom"></span><div class="site"></div>',
+            () => choisirBeneficiaire(nom)
+          );
+          bouton.querySelector('.nom').textContent = ayantDroit.libelle;
+          bouton.querySelector('.site').textContent = ayantDroit.couvert ? '' : 'Non couvert';
+        }
+      }
+
+      async function chercherAgents(texte) {
         const reponse = await fetch(URL_AGENTS + '?q=' + encodeURIComponent(texte));
         const donnees = await reponse.json();
         suggestions.innerHTML = '';
         for (const agent of donnees.resultats) {
-          const bouton = document.createElement('button');
-          bouton.type = 'button';
-          bouton.innerHTML = '<span class="matricule"></span> — <span class="nom"></span><div class="site"></div>';
+          const bouton = boutonSuggestion(
+            '<span class="matricule"></span> — <span class="nom"></span><div class="site"></div>',
+            () => afficherBeneficiaires(agent)
+          );
           bouton.querySelector('.matricule').textContent = agent.matricule;
           bouton.querySelector('.nom').textContent = agent.nom;
           bouton.querySelector('.site').textContent = agent.site;
-          bouton.addEventListener('click', () => {
-            champMatricule.value = agent.matricule;
-            if (champNom && !champNom.value.trim()) champNom.value = agent.nom;
-            suggestions.innerHTML = '';
-          });
-          suggestions.appendChild(bouton);
         }
       }
 
@@ -213,7 +248,7 @@
         clearTimeout(minuteur);
         const texte = champMatricule.value.trim();
         if (texte.length < 2) { suggestions.innerHTML = ''; return; }
-        minuteur = setTimeout(() => chercher(texte), 200);
+        minuteur = setTimeout(() => chercherAgents(texte), 200);
       });
 
       document.addEventListener('click', (evenement) => {

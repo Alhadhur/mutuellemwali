@@ -308,18 +308,36 @@ class LigneFactureForm(forms.Form):
     """Une ligne à la fois : complète une facture créée sans détail (voir
     FactureCreer) sans repasser par un fichier CSV pour une facture à
     l'unité. Même choix de colonne montant que l'import — le montant absent
-    (coût total ou part réclamée) se déduit du taux du prestataire."""
+    (coût total ou part réclamée) se déduit du taux du prestataire.
+
+    matricule et nom_beneficiaire restent des champs texte (et non des clés
+    vers Agent/AyantDroit) : ils doivent porter ce qui est réellement écrit
+    sur la facture du prestataire, y compris si c'est faux ou introuvable —
+    c'est justement ce que le rapprochement signale (Agent inconnu,
+    Bénéficiaire différent). La recherche d'agent côté écran ne fait que
+    préremplir ces deux champs, elle ne les transforme pas en sélection
+    obligatoire."""
 
     date_soin = forms.DateField(label="Date du soin", widget=DateInput)
     matricule = forms.CharField(label="Matricule de l'agent", max_length=20)
     nom_beneficiaire = forms.CharField(label="Bénéficiaire (tel qu'écrit sur la facture)", max_length=150)
-    nature = forms.CharField(label="Nature du soin", max_length=255)
+    nature = forms.ChoiceField(label="Nature du soin")
     montant = forms.IntegerField(label="Montant (KMF)", min_value=0)
     montant_colonne = forms.ChoiceField(
         label="Ce montant correspond à",
         choices=(("reclame", "La part réclamée à la mutuelle"), ("total", "Le coût total du soin")),
         initial="reclame",
     )
+
+    def __init__(self, *args, prestataire=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Un prestataire pas encore détaillé (aucun tarif par nature) garde
+        # la liste complète : même repli que Prestataire.natures_proposees,
+        # pour ne jamais bloquer la saisie tant que le barème n'est pas fin.
+        natures = (prestataire.natures_proposees() if prestataire else None) or NatureSoin.proposables()
+        self.fields["nature"].choices = [("", "— choisir —")] + [
+            (nature.libelle, nature.libelle) for nature in natures
+        ]
 
 
 class ParametrageForm(forms.ModelForm):

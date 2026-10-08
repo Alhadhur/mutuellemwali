@@ -1159,7 +1159,7 @@ class FactureDetail(AccesBackoffice, DetailView):
         contexte["peut_supprimer"] = (
             self.object.statut != StatutFacture.VALIDEE and self.request.user.is_superuser
         )
-        contexte["form_ligne"] = styliser(forms.LigneFactureForm())
+        contexte["form_ligne"] = styliser(forms.LigneFactureForm(prestataire=self.object.prestataire))
         contexte["url_ligne_ajouter"] = reverse("backoffice:facture_ligne_ajouter", args=[self.object.pk])
         return contexte
 
@@ -1328,7 +1328,7 @@ class FactureLigneAjouter(AccesModification, View):
         from facturation.management.commands.importer_facture import LigneInvalide, _cout_total, _part_mutuelle
 
         facture = get_object_or_404(Facture, pk=pk)
-        form = forms.LigneFactureForm(request.POST)
+        form = forms.LigneFactureForm(request.POST, prestataire=facture.prestataire)
         if not form.is_valid():
             erreurs = "; ".join(f"{champ} : {', '.join(liste)}" for champ, liste in form.errors.items())
             messages.error(request, f"Ligne invalide — {erreurs}")

@@ -1083,6 +1083,43 @@ class FactureLigneAjouterTest(BaseBackoffice):
 
         self.assertNotContains(reponse, reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]))
 
+    def test_une_nature_inconnue_est_refusee(self):
+        """Le champ nature est une liste fermée (voir LigneFactureForm) :
+        une faute de frappe ne doit pas pouvoir créer une ligne orpheline."""
+        reponse = self.client.post(
+            reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]),
+            self._donnees(nature="Blabla"),
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.assertEqual(self.facture.lignes.count(), 0)
+
+    def test_la_liste_des_natures_se_limite_a_celles_du_prestataire_une_fois_detaille(self):
+        """Un prestataire non détaillé propose toutes les natures (repli de
+        Prestataire.natures_proposees) ; dès qu'un tarif existe, seules les
+        natures tarifées chez lui restent acceptées."""
+        TarifPrestataire.objects.create(
+            prestataire=self.prestataire,
+            nature_soin=NatureSoin.objects.get(libelle="Consultation"),
+            taux_prise_en_charge=80,
+        )
+
+        reponse_ecran = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.assertContains(reponse_ecran, "Consultation")
+        self.assertNotContains(reponse_ecran, "Hospitalisation")
+
+        reponse = self.client.post(
+            reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]),
+            self._donnees(nature="Hospitalisation"),
+        )
+        self.assertEqual(self.facture.lignes.count(), 0)
+
+        self.client.post(
+            reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]),
+            self._donnees(nature="Consultation"),
+        )
+        self.assertEqual(self.facture.lignes.count(), 1)
+
 
 class FactureListeFiltresTest(BaseBackoffice):
     def setUp(self):
