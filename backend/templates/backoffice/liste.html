@@ -26,24 +26,26 @@
 
 <section>
   {% if lignes %}
-    <table>
-      <thead>
-        <tr>
-          {% for entete in entetes %}<th>{{ entete }}</th>{% endfor %}
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for ligne in lignes %}
+    <div class="tableau-defilant">
+      <table>
+        <thead>
           <tr>
-            {% for cellule in ligne.cellules %}<td>{{ cellule }}</td>{% endfor %}
-            <td style="text-align:right;">
-              {% if ligne.url %}<a class="btn btn-secondaire btn-petit" href="{{ ligne.url }}">Ouvrir</a>{% endif %}
-            </td>
+            {% for entete in entetes %}<th>{{ entete }}</th>{% endfor %}
+            <th></th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for ligne in lignes %}
+            <tr>
+              {% for cellule in ligne.cellules %}<td>{{ cellule }}</td>{% endfor %}
+              <td style="text-align:right;">
+                {% if ligne.url %}<a class="btn btn-secondaire btn-petit" href="{{ ligne.url }}">Ouvrir</a>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% if is_paginated %}
       <div class="pagination">
         {% if page_obj.has_previous %}
