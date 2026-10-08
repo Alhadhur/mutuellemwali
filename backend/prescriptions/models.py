@@ -142,6 +142,20 @@ class Prescription(models.Model):
     def clean(self):
         if self.ayant_droit_id and self.ayant_droit.agent_id != self.agent_id:
             raise ValidationError("L'ayant droit sélectionné n'appartient pas à cet agent.")
+        # Le champ date est un <input type="date"> du navigateur : si l'année
+        # n'est pas complétée sur 4 chiffres avant l'envoi, rien ne bloquait
+        # jusqu'ici une date aussi improbable (ex. 26 au lieu de 2026) — la
+        # prescription restait alors invisible de tous les rapports filtrés
+        # par période, tout en paraissant normale dans la liste brute.
+        if self.date_emission and self.date_emission.year < 2000:
+            raise ValidationError(
+                {
+                    "date_emission": (
+                        "Année improbable : vérifiez qu'elle est bien saisie sur 4 chiffres "
+                        "(ex. 2026, pas 26)."
+                    )
+                }
+            )
 
     @property
     def ayant_droit_hors_couverture(self):

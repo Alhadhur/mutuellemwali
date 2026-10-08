@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
 
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -117,6 +118,64 @@ class ImportHistoriqueTest(BasePrescriptions):
         self.assertIn("ligne 2", sortie)
 
 
+class CorrigerAnneesPrescriptionsTest(BasePrescriptions):
+    """Commande de rattrapage pour les prescriptions déjà enregistrées avec
+    une année sur 2 chiffres avant l'ajout de la validation (voir
+    Prescription.clean) — la corruption est reproduite ici via update()
+    direct, puisque clean() en bloquerait désormais la création normale."""
+
+    def setUp(self):
+        super().setUp()
+        corrompue = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-26",
+            montant_total=10000,
+            date_emission=date(2026, 10, 5),
+            justificatif="x.jpg",
+        )
+        Prescription.objects.filter(pk=corrompue.pk).update(date_emission=date(26, 10, 5))
+        self.corrompue_pk = corrompue.pk
+
+        self.normale = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-OK",
+            montant_total=5000,
+            date_emission=date(2026, 9, 1),
+            justificatif="x.jpg",
+        )
+
+    def test_sans_option_n_ecrit_rien(self):
+        sortie = StringIO()
+        call_command("corriger_annees_prescriptions", stdout=sortie)
+
+        corrompue = Prescription.objects.get(pk=self.corrompue_pk)
+        self.assertEqual(corrompue.date_emission.year, 26)
+        self.assertIn("ORD-26", sortie.getvalue())
+        self.assertIn("Aperçu seul", sortie.getvalue())
+
+    def test_avec_appliquer_corrige_l_annee(self):
+        call_command("corriger_annees_prescriptions", "--appliquer", stdout=StringIO())
+
+        corrompue = Prescription.objects.get(pk=self.corrompue_pk)
+        self.assertEqual(corrompue.date_emission, date(2026, 10, 5))
+
+    def test_la_prescription_normale_n_est_pas_touchee(self):
+        call_command("corriger_annees_prescriptions", "--appliquer", stdout=StringIO())
+
+        self.normale.refresh_from_db()
+        self.assertEqual(self.normale.date_emission, date(2026, 9, 1))
+
+    def test_rien_a_corriger_si_aucune_annee_suspecte(self):
+        Prescription.objects.filter(pk=self.corrompue_pk).update(date_emission=date(2026, 10, 5))
+
+        sortie = StringIO()
+        call_command("corriger_annees_prescriptions", "--appliquer", stdout=sortie)
+
+        self.assertIn("Aucune date suspecte", sortie.getvalue())
+
+
 class RejeuDesReglesTest(BasePrescriptions):
     def test_le_mode_rejouer_n_ecrit_jamais(self):
         self.importer(
@@ -225,6 +284,56 @@ class SaisieManuelleTest(BasePrescriptions):
         # raison du signalement doit donc aussi vivre dans l'historique, pour
         # rester consultable une fois la décision prise et le bandeau disparu.
         self.assertIn("Doublon", saisie.historique.first().commentaire)
+
+
+class DateEmissionTest(BasePrescriptions):
+    """Le champ date d'émission est un <input type="date"> du navigateur :
+    si l'année n'est pas complétée sur 4 chiffres avant l'envoi, rien ne
+    bloquait jusqu'ici une date aussi improbable (26 au lieu de 2026) — la
+    prescription restait alors invisible de tous les rapports filtrés par
+    période, tout en paraissant normale dans la liste brute."""
+
+    def setUp(self):
+        super().setUp()
+        self.rh = Utilisateur.objects.create_user("RH1", "x", nom="Rh", prenom="Service", role=Role.RH)
+        self.client.force_login(self.rh)
+
+    def donnees(self, **surcharges):
+        valeurs = {
+            "agent": self.agent.pk,
+            "ayant_droit": "",
+            "prestataire": self.prestataire.pk,
+            "nature": NatureSoin.objects.get(libelle="Consultation").pk,
+            "montant_total": "10000",
+            "date_emission": "0026-10-05",
+            "justificatif": SimpleUploadedFile("scan.jpg", b"contenu", content_type="image/jpeg"),
+        }
+        valeurs.update(surcharges)
+        return valeurs
+
+    def test_une_annee_sur_deux_chiffres_est_refusee_a_la_saisie(self):
+        reponse = self.client.post("/backoffice/prescriptions/nouvelle/", self.donnees())
+
+        self.assertEqual(reponse.status_code, 200)  # réaffiche le formulaire, pas de redirection
+        self.assertContains(reponse, "Année improbable")
+        self.assertEqual(Prescription.objects.count(), 0)
+
+    def test_une_annee_normale_est_acceptee(self):
+        self.client.post("/backoffice/prescriptions/nouvelle/", self.donnees(date_emission="2026-10-05"))
+
+        self.assertEqual(Prescription.objects.count(), 1)
+
+    def test_clean_rejette_directement_une_annee_sur_deux_chiffres(self):
+        prescription = Prescription(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            montant_total=10000,
+            date_emission=date(26, 10, 5),
+        )
+
+        with self.assertRaises(ValidationError) as erreur:
+            prescription.full_clean()
+        self.assertIn("date_emission", erreur.exception.message_dict)
 
 
 class AyantDroitHorsCouvertureTest(BasePrescriptions):

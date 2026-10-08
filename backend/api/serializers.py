@@ -217,6 +217,16 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Cette nature de soin n'est plus proposée.")
         return value
 
+    def validate_date_emission(self, value):
+        """Même garde que Prescription.clean() : une année sur 2 chiffres
+        rendrait la prescription invisible de tous les rapports filtrés par
+        période, tout en ayant l'air normale dans la liste brute."""
+        if value.year < 2000:
+            raise serializers.ValidationError(
+                "Année improbable : vérifiez qu'elle est bien saisie sur 4 chiffres (ex. 2026, pas 26)."
+            )
+        return value
+
     def create(self, validated_data):
         request = self.context["request"]
         validated_data["agent"] = request.user.agent
