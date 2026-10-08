@@ -358,6 +358,10 @@ class TableauDeBordView(AccesBackoffice, TemplateView):
         contexte["en_controle"] = services.prescriptions_en_controle()
         contexte["pics"] = services.pics_de_consommation()
         contexte["prestataires_anormaux"] = services.prestataires_volume_anormal()
+        # Le titre de la section doit suivre le réglage réel : sinon il reste
+        # bloqué sur "30 derniers jours" même après avoir changé la fenêtre
+        # d'analyse dans les paramètres.
+        contexte["fenetre_analyse_jours"] = Parametrage.charger().fenetre_analyse_jours
         contexte["agents_proche_quota"] = services.agents_proche_quota()
         contexte["agents_depasse_quota"] = services.agents_depasse_quota()
         contexte["justificatifs_expires"] = services.ayants_droit_justificatif_expire()

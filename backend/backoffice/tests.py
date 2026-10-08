@@ -86,6 +86,19 @@ class TableauDeBordAgentTest(BaseBackoffice):
         self.assertEqual(reponse.status_code, 200)
         self.assertContains(reponse, "Tableau de bord anomalies")
 
+    def test_le_titre_du_volume_anormal_suit_la_fenetre_d_analyse_configuree(self):
+        """Le titre citait « 30 derniers jours » en dur, même après avoir
+        changé la fenêtre d'analyse dans les paramètres."""
+        parametres = Parametrage.charger()
+        parametres.fenetre_analyse_jours = 60
+        parametres.save()
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:tableau_de_bord"))
+
+        self.assertContains(reponse, "Prestataires à volume anormal (60 derniers jours)")
+        self.assertNotContains(reponse, "30 derniers jours")
+
     def test_le_tableau_de_bord_agent_n_affiche_que_ses_propres_donnees(self):
         autre_compte = Utilisateur.objects.create_user("A0002", "x", nom="Autre", prenom="Personne", role=Role.AGENT)
         autre_agent = Agent.objects.create(utilisateur=autre_compte, site="Moroni")
