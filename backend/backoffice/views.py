@@ -76,6 +76,19 @@ class AccesAgent(LoginRequiredMixin, UserPassesTestMixin):
         return utilisateur.is_authenticated and utilisateur.role == Role.AGENT and hasattr(utilisateur, "agent")
 
 
+def _recherche_textuelle(queryset, champs, texte):
+    """Factorisé pour être rejoué à l'identique par un export filtré (voir
+    PrescriptionExport) : le fichier téléchargé doit chercher le même texte
+    dans les mêmes champs que l'écran, pas une approximation séparée."""
+    texte = (texte or "").strip()
+    if not texte or not champs:
+        return queryset
+    filtre = Q()
+    for champ in champs:
+        filtre |= Q(**{f"{champ}__icontains": texte})
+    return queryset.filter(filtre)
+
+
 class ListeBase(AccesBackoffice, ListView):
     template_name = "backoffice/liste.html"
     paginate_by = 25
@@ -90,13 +103,8 @@ class ListeBase(AccesBackoffice, ListView):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        recherche = self.request.GET.get("recherche", "").strip()
-        if recherche and self.champs_recherche:
-            filtre = Q()
-            for champ in self.champs_recherche:
-                filtre |= Q(**{f"{champ}__icontains": recherche})
-            queryset = queryset.filter(filtre)
-        return queryset
+        recherche = self.request.GET.get("recherche", "")
+        return _recherche_textuelle(queryset, self.champs_recherche, recherche)
 
     def get_context_data(self, **kwargs):
         contexte = super().get_context_data(**kwargs)
@@ -729,6 +737,37 @@ class AyantDroitVerifier(AccesModification, View):
 # --- Prescriptions --------------------------------------------------------
 
 
+def _filtrer_prescriptions(queryset, params):
+    """Filtres de la liste, partagés avec son export (voir PrescriptionExport)
+    pour que le fichier téléchargé reflète ce que l'écran affiche, pas
+    systématiquement tout l'historique."""
+    statut = params.get("statut", "")
+    if statut:
+        queryset = queryset.filter(statut=statut)
+
+    prestataire = params.get("prestataire", "")
+    if prestataire:
+        queryset = queryset.filter(prestataire_id=prestataire)
+
+    nature = params.get("nature", "")
+    if nature:
+        queryset = queryset.filter(nature_id=nature)
+
+    date_min = params.get("date_min", "")
+    if date_min:
+        queryset = queryset.filter(date_emission__gte=date_min)
+
+    date_max = params.get("date_max", "")
+    if date_max:
+        queryset = queryset.filter(date_emission__lte=date_max)
+
+    agent = params.get("agent", "")
+    if agent:
+        queryset = queryset.filter(agent_id=agent)
+
+    return queryset
+
+
 class PrescriptionListe(ListeBase):
     model = Prescription
     titre = "Prescriptions"
@@ -737,6 +776,7 @@ class PrescriptionListe(ListeBase):
     url_creation = "backoffice:prescription_creer"
     libelle_creation = "Saisir une prescription"
     url_import = "backoffice:prescription_import"
+    url_export = "backoffice:prescription_export"
     champs_recherche = ("numero_ordonnance", "agent__utilisateur__matricule", "prestataire__nom")
     colonnes = (
         ("N° ordonnance", "numero_ordonnance"),
@@ -759,32 +799,7 @@ class PrescriptionListe(ListeBase):
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("agent__utilisateur", "prestataire", "ayant_droit", "nature")
-
-        statut = self.request.GET.get("statut", "")
-        if statut:
-            queryset = queryset.filter(statut=statut)
-
-        prestataire = self.request.GET.get("prestataire", "")
-        if prestataire:
-            queryset = queryset.filter(prestataire_id=prestataire)
-
-        nature = self.request.GET.get("nature", "")
-        if nature:
-            queryset = queryset.filter(nature_id=nature)
-
-        date_min = self.request.GET.get("date_min", "")
-        if date_min:
-            queryset = queryset.filter(date_emission__gte=date_min)
-
-        date_max = self.request.GET.get("date_max", "")
-        if date_max:
-            queryset = queryset.filter(date_emission__lte=date_max)
-
-        agent = self.request.GET.get("agent", "")
-        if agent:
-            queryset = queryset.filter(agent_id=agent)
-
-        return queryset
+        return _filtrer_prescriptions(queryset, self.request.GET)
 
     def get_context_data(self, **kwargs):
         contexte = super().get_context_data(**kwargs)
@@ -804,6 +819,34 @@ class PrescriptionListe(ListeBase):
         if filtre_agent:
             contexte["agent_filtre"] = Agent.objects.select_related("utilisateur").filter(pk=filtre_agent).first()
         return contexte
+
+
+class PrescriptionExport(AccesBackoffice, View):
+    """Exporte les mêmes filtres que la liste (statut, prestataire, nature,
+    période, agent) : un export sans filtre renvoie tout l'historique, un
+    export filtré ne renvoie que ce que l'écran affichait."""
+
+    def get(self, request):
+        colonnes = (
+            ("N° ordonnance", "numero_ordonnance"),
+            ("Agent", lambda o: o.agent.matricule),
+            ("Nom de l'agent", lambda o: o.agent.utilisateur.get_full_name()),
+            (
+                "Ayant droit",
+                lambda o: f"{o.ayant_droit.prenom} {o.ayant_droit.nom}" if o.ayant_droit_id else "",
+            ),
+            ("Prestataire", lambda o: o.prestataire.nom),
+            ("Nature", lambda o: o.nature.libelle if o.nature_id else ""),
+            ("Montant total", "montant_total"),
+            ("Montant remboursé", "montant_rembourse"),
+            ("Date d'émission", "date_emission"),
+            ("Statut", "get_statut_display"),
+            ("Motif du signalement", "motif_signalement"),
+        )
+        queryset = Prescription.objects.select_related("agent__utilisateur", "prestataire", "ayant_droit", "nature")
+        queryset = _recherche_textuelle(queryset, PrescriptionListe.champs_recherche, request.GET.get("recherche", ""))
+        queryset = _filtrer_prescriptions(queryset, request.GET)
+        return exports.reponse_csv(exports.nom_de_fichier("prescriptions"), colonnes, queryset)
 
 
 class RechercheAgents(AccesBackoffice, View):
@@ -1325,6 +1368,7 @@ class PrestataireListe(ListeBase):
     libelle_creation = "Nouveau prestataire"
     url_detail = "backoffice:prestataire_modifier"
     url_import = "backoffice:prestataire_import"
+    url_export = "backoffice:prestataire_export"
     champs_recherche = ("code", "nom", "ville")
     colonnes = (
         ("Code", "code"),
@@ -1334,6 +1378,25 @@ class PrestataireListe(ListeBase):
         ("Taux", lambda o: f"{o.taux_prise_en_charge} %"),
         ("Statut", "get_statut_display"),
     )
+
+
+class PrestataireExport(AccesBackoffice, View):
+    """Même recherche (code, nom, ville) que la liste : un export filtré ne
+    renvoie que ce que l'écran affichait."""
+
+    def get(self, request):
+        colonnes = (
+            ("Code", "code"),
+            ("Nom", "nom"),
+            ("Type", "get_type_prestataire_display"),
+            ("Ville", "ville"),
+            ("Taux de prise en charge", lambda o: o.taux_prise_en_charge),
+            ("Statut", "get_statut_display"),
+        )
+        queryset = _recherche_textuelle(
+            Prestataire.objects.all(), PrestataireListe.champs_recherche, request.GET.get("recherche", "")
+        )
+        return exports.reponse_csv(exports.nom_de_fichier("prestataires"), colonnes, queryset)
 
 
 class PrestataireCreer(FormulaireBase, CreateView):

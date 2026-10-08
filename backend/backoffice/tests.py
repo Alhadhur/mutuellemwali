@@ -1,3 +1,5 @@
+import csv
+import io
 from datetime import date, timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -369,6 +371,90 @@ class ListesTest(BaseBackoffice):
         self.assertContains(reponse, "Fils")
         self.assertContains(reponse, "Zahra")
         self.assertContains(reponse, "Enfant")
+
+
+class PrescriptionExportTest(BaseBackoffice):
+    """Même filtres que la liste (voir _filtrer_prescriptions) : un export
+    filtré ne doit pas renvoyer tout l'historique."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def _lire_csv(self, reponse):
+        contenu = reponse.content.decode("utf-8-sig")
+        return [cellule for ligne in csv.reader(io.StringIO(contenu), delimiter=";") for cellule in ligne]
+
+    def test_l_export_contient_la_prescription(self):
+        reponse = self.client.get(reverse("backoffice:prescription_export"))
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertIn("attachment", reponse["Content-Disposition"])
+        plat = self._lire_csv(reponse)
+        self.assertIn(self.prescription.numero_ordonnance, plat)
+        self.assertIn("Pharmacie Centrale", plat)
+
+    def test_l_export_respecte_le_filtre_de_statut(self):
+        """self.prescription reste SOUMISE (voir BaseBackoffice) : un export
+        filtré sur Validée ne doit pas la reprendre."""
+        validee = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-VALIDEE",
+            montant_total=5000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+            statut=StatutPrescription.VALIDEE,
+        )
+
+        reponse = self.client.get(reverse("backoffice:prescription_export"), {"statut": StatutPrescription.VALIDEE})
+
+        plat = self._lire_csv(reponse)
+        self.assertIn(validee.numero_ordonnance, plat)
+        self.assertNotIn(self.prescription.numero_ordonnance, plat)
+
+    def test_le_lien_exporter_reprend_les_filtres_actifs(self):
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"statut": StatutPrescription.VALIDEE})
+
+        self.assertContains(reponse, reverse("backoffice:prescription_export") + "?statut=VALIDEE")
+
+    def test_un_agent_n_accede_pas_a_l_export(self):
+        self.client.force_login(self.compte_agent)
+
+        reponse = self.client.get(reverse("backoffice:prescription_export"))
+
+        self.assertEqual(reponse.status_code, 403)
+
+
+class PrestataireExportTest(BaseBackoffice):
+    """Même recherche (code, nom, ville) que la liste."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def test_l_export_contient_le_prestataire(self):
+        reponse = self.client.get(reverse("backoffice:prestataire_export"))
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertIn("attachment", reponse["Content-Disposition"])
+        self.assertIn("Pharmacie Centrale", reponse.content.decode("utf-8-sig"))
+
+    def test_l_export_respecte_la_recherche(self):
+        Prestataire.objects.create(
+            type_prestataire=TypePrestataire.CLINIQUE, nom="Clinique du Nord", taux_prise_en_charge=70
+        )
+
+        reponse = self.client.get(reverse("backoffice:prestataire_export"), {"recherche": "Pharmacie"})
+
+        contenu = reponse.content.decode("utf-8-sig")
+        self.assertIn("Pharmacie Centrale", contenu)
+        self.assertNotIn("Clinique du Nord", contenu)
+
+    def test_le_lien_exporter_reprend_la_recherche_active(self):
+        reponse = self.client.get(reverse("backoffice:prestataires"), {"recherche": "Pharmacie"})
+
+        self.assertContains(reponse, reverse("backoffice:prestataire_export") + "?recherche=Pharmacie")
 
 
 class RechercheAgentTest(BaseBackoffice):

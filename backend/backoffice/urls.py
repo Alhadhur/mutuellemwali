@@ -33,6 +33,7 @@ urlpatterns = [
     path("ayants-droit/<int:pk>/<str:decision>/", views.AyantDroitVerifier.as_view(), name="ayant_droit_verifier"),
 
     path("prescriptions/", views.PrescriptionListe.as_view(), name="prescriptions"),
+    path("prescriptions/export/", views.PrescriptionExport.as_view(), name="prescription_export"),
     path("prescriptions/nouvelle/", views.PrescriptionCreer.as_view(), name="prescription_creer"),
     path("recherche/agents/", views.RechercheAgents.as_view(), name="recherche_agents"),
     path("recherche/agents/<int:pk>/ayants-droit/", views.AyantsDroitDeLAgent.as_view(), name="recherche_ayants_droit"),
@@ -57,6 +58,7 @@ urlpatterns = [
     path("factures/<int:pk>/supprimer/", views.FactureSupprimer.as_view(), name="facture_supprimer"),
 
     path("prestataires/", views.PrestataireListe.as_view(), name="prestataires"),
+    path("prestataires/export/", views.PrestataireExport.as_view(), name="prestataire_export"),
     path("prestataires/nouveau/", views.PrestataireCreer.as_view(), name="prestataire_creer"),
     path("prestataires/importer/", views.PrestataireImport.as_view(), name="prestataire_import"),
     path("prestataires/<int:pk>/", views.PrestataireModifier.as_view(), name="prestataire_modifier"),
