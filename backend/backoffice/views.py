@@ -927,6 +927,15 @@ class PrescriptionModifier(FormulaireBase, UpdateView):
     def get_success_url(self):
         return reverse("backoffice:prescription_detail", args=[self.object.pk])
 
+    def get_context_data(self, **kwargs):
+        # FormulaireBase fixe « Annuler » sur self.success_url, un attribut
+        # de classe — absent ici puisque la destination dépend de l'objet
+        # (get_success_url). Sans ça, url_retour vaut None et le lien
+        # « Annuler » pointe vers "None", d'où un 404 au clic.
+        contexte = super().get_context_data(**kwargs)
+        contexte["url_retour"] = self.get_success_url()
+        return contexte
+
 
 class PrescriptionDetail(AccesBackoffice, DetailView):
     model = Prescription

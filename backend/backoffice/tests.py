@@ -604,6 +604,18 @@ class PrescriptionModifierTest(BaseBackoffice):
 
         self.assertEqual(reponse.status_code, 403)
 
+    def test_le_lien_annuler_pointe_vers_la_fiche_et_non_vers_none(self):
+        """FormulaireBase fixe « Annuler » sur self.success_url, un attribut
+        de classe absent ici (la destination dépend de l'objet édité) : sans
+        le correctif, url_retour vaut None et le lien pointe vers "None",
+        d'où un 404 au clic."""
+        reponse = self.client.get(reverse("backoffice:prescription_modifier", args=[self.prescription.pk]))
+
+        self.assertContains(
+            reponse, reverse("backoffice:prescription_detail", args=[self.prescription.pk])
+        )
+        self.assertNotContains(reponse, 'href="None"')
+
 
 class PrescriptionSupprimerTest(BaseBackoffice):
     """Suppression réservée au superuser (voir AccesSuperuser) : RH garde la
