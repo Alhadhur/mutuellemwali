@@ -270,7 +270,8 @@ class TarifPrestataireForm(forms.ModelForm):
 
 
 class FactureForm(forms.ModelForm):
-    """Entête de facture. Les lignes arrivent par import CSV."""
+    """Entête de facture. Les lignes s'ajoutent ensuite une par une (voir
+    LigneFactureForm) ou par import CSV, qui charge les deux en une fois."""
 
     class Meta:
         model = Facture
@@ -301,6 +302,24 @@ class ImportFactureForm(forms.Form):
         if prestataire and numero and Facture.objects.filter(prestataire=prestataire, numero=numero).exists():
             self.add_error("numero", "Cette facture est déjà enregistrée pour ce prestataire.")
         return donnees
+
+
+class LigneFactureForm(forms.Form):
+    """Une ligne à la fois : complète une facture créée sans détail (voir
+    FactureCreer) sans repasser par un fichier CSV pour une facture à
+    l'unité. Même choix de colonne montant que l'import — le montant absent
+    (coût total ou part réclamée) se déduit du taux du prestataire."""
+
+    date_soin = forms.DateField(label="Date du soin", widget=DateInput)
+    matricule = forms.CharField(label="Matricule de l'agent", max_length=20)
+    nom_beneficiaire = forms.CharField(label="Bénéficiaire (tel qu'écrit sur la facture)", max_length=150)
+    nature = forms.CharField(label="Nature du soin", max_length=255)
+    montant = forms.IntegerField(label="Montant (KMF)", min_value=0)
+    montant_colonne = forms.ChoiceField(
+        label="Ce montant correspond à",
+        choices=(("reclame", "La part réclamée à la mutuelle"), ("total", "Le coût total du soin")),
+        initial="reclame",
+    )
 
 
 class ParametrageForm(forms.ModelForm):

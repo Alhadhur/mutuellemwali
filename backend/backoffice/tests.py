@@ -998,6 +998,79 @@ class FactureSupprimerTest(BaseBackoffice):
         self.assertTrue(Facture.objects.filter(pk=self.facture.pk).exists())
 
 
+class FactureLigneAjouterTest(BaseBackoffice):
+    """Complète une facture ligne par ligne, sans repasser par un fichier CSV
+    (voir FactureLigneAjouter) — même calcul de montant que l'import."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.facture = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=10000
+        )
+
+    def _donnees(self, **extra):
+        donnees = {
+            "date_soin": "2026-01-05",
+            "matricule": self.agent.matricule,
+            "nom_beneficiaire": "Fatima Zahra",
+            "nature": "Consultation",
+            "montant": "8000",
+            "montant_colonne": "reclame",
+        }
+        donnees.update(extra)
+        return donnees
+
+    def test_le_montant_total_se_deduit_du_taux_quand_la_part_reclamee_est_saisie(self):
+        # Prestataire à 80 % (voir BaseBackoffice) : 8000 réclamés → 10000 de coût total.
+        self.client.post(reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]), self._donnees())
+
+        ligne = self.facture.lignes.get()
+        self.assertEqual(ligne.montant_reclame, 8000)
+        self.assertEqual(ligne.montant_soin, 10000)
+        self.assertEqual(ligne.matricule, self.agent.matricule.upper())
+
+    def test_la_part_reclamee_se_deduit_du_taux_quand_le_cout_total_est_saisi(self):
+        self.client.post(
+            reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]),
+            self._donnees(montant="10000", montant_colonne="total"),
+        )
+
+        ligne = self.facture.lignes.get()
+        self.assertEqual(ligne.montant_soin, 10000)
+        self.assertEqual(ligne.montant_reclame, 8000)
+
+    def test_la_ligne_est_a_rapprocher_par_defaut(self):
+        self.client.post(reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]), self._donnees())
+
+        self.assertEqual(self.facture.lignes.get().statut, StatutLigne.A_RAPPROCHER)
+
+    def test_une_ligne_invalide_n_est_pas_enregistree(self):
+        reponse = self.client.post(
+            reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]),
+            self._donnees(montant=""),
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.assertEqual(self.facture.lignes.count(), 0)
+
+    def test_la_direction_ne_peut_pas_ajouter_de_ligne(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.post(reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]), self._donnees())
+
+        self.assertEqual(reponse.status_code, 403)
+        self.assertEqual(self.facture.lignes.count(), 0)
+
+    def test_la_ligne_ajoutee_apparait_sur_la_fiche(self):
+        self.client.post(reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]), self._donnees())
+
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertContains(reponse, "Fatima Zahra")
+        self.assertContains(reponse, "10000")
+
+
 class FactureListeFiltresTest(BaseBackoffice):
     def setUp(self):
         super().setUp()

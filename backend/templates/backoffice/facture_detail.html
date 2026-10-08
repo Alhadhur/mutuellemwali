@@ -87,48 +87,65 @@
 <section>
   <h2>Lignes de la facture ({{ synthese.nombre_lignes }})</h2>
   {% if lignes %}
-    <table>
-      <tr><th>Date</th><th>Matricule</th><th>Bénéficiaire</th><th>Nature</th><th>Coût du soin</th><th>Réclamé</th><th>Rapprochement</th><th></th></tr>
-      {% for ligne in lignes %}
-        <tr>
-          <td>{{ ligne.date_soin|date:"d/m/Y" }}</td>
-          <td>{{ ligne.matricule }}</td>
-          <td>{{ ligne.nom_beneficiaire }}</td>
-          <td>{{ ligne.nature|default:"—" }}</td>
-          <td>{{ ligne.montant_soin }} KMF</td>
-          <td>{{ ligne.montant_reclame }} KMF</td>
-          <td>
-            {% if ligne.statut == 'CONCORDANTE' %}
-              <span class="badge badge-ok">Concordante</span>
-            {% elif ligne.statut == 'ECART_MONTANT' %}
-              <span class="badge badge-warn">Déclaré {{ ligne.prescription.montant_total }} KMF</span>
-            {% elif ligne.statut == 'ECART_TAUX' %}
-              <span class="badge badge-danger">Taux : {{ ligne.montant_reclame_attendu }} KMF attendus</span>
-            {% elif ligne.statut == 'SANS_PRESCRIPTION' %}
-              <span class="badge badge-danger">Aucune prescription</span>
-            {% elif ligne.statut == 'AGENT_INCONNU' %}
-              <span class="badge badge-danger">Matricule inconnu</span>
-            {% elif ligne.statut == 'NATURE_NON_COUVERTE' %}
-              <span class="badge badge-danger">Nature non couverte</span>
-            {% elif ligne.statut == 'BENEFICIAIRE_DIFFERENT' %}
-              <span class="badge badge-danger">Bénéficiaire : {{ ligne.prescription.nom_beneficiaire }} attendu</span>
-            {% else %}
-              <span class="badge badge-muted">À rapprocher</span>
-            {% endif %}
-          </td>
-          <td style="text-align:right;">
-            {% if ligne.prescription %}
-              <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' ligne.prescription.pk %}">Prescription</a>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-    </table>
+    <div class="tableau-defilant">
+      <table>
+        <tr><th>Date</th><th>Matricule</th><th>Bénéficiaire</th><th>Nature</th><th>Coût du soin</th><th>Réclamé</th><th>Rapprochement</th><th></th></tr>
+        {% for ligne in lignes %}
+          <tr>
+            <td>{{ ligne.date_soin|date:"d/m/Y" }}</td>
+            <td>{{ ligne.matricule }}</td>
+            <td>{{ ligne.nom_beneficiaire }}</td>
+            <td>{{ ligne.nature|default:"—" }}</td>
+            <td>{{ ligne.montant_soin }} KMF</td>
+            <td>{{ ligne.montant_reclame }} KMF</td>
+            <td>
+              {% if ligne.statut == 'CONCORDANTE' %}
+                <span class="badge badge-ok">Concordante</span>
+              {% elif ligne.statut == 'ECART_MONTANT' %}
+                <span class="badge badge-warn">Déclaré {{ ligne.prescription.montant_total }} KMF</span>
+              {% elif ligne.statut == 'ECART_TAUX' %}
+                <span class="badge badge-danger">Taux : {{ ligne.montant_reclame_attendu }} KMF attendus</span>
+              {% elif ligne.statut == 'SANS_PRESCRIPTION' %}
+                <span class="badge badge-danger">Aucune prescription</span>
+              {% elif ligne.statut == 'AGENT_INCONNU' %}
+                <span class="badge badge-danger">Matricule inconnu</span>
+              {% elif ligne.statut == 'NATURE_NON_COUVERTE' %}
+                <span class="badge badge-danger">Nature non couverte</span>
+              {% elif ligne.statut == 'BENEFICIAIRE_DIFFERENT' %}
+                <span class="badge badge-danger">Bénéficiaire : {{ ligne.prescription.nom_beneficiaire }} attendu</span>
+              {% else %}
+                <span class="badge badge-muted">À rapprocher</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right;">
+              {% if ligne.prescription %}
+                <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' ligne.prescription.pk %}">Prescription</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
   {% else %}
-    <div class="empty">
-      Aucune ligne. Cette facture a été créée sans détail : supprimez-la puis ressaisissez-la depuis
-      <a href="{% url 'backoffice:facture_import' %}">Importer une facture</a>, qui charge l'en-tête, les lignes et
-      lance le rapprochement en une seule fois.
+    <div class="empty">Aucune ligne pour l'instant — ajoutez-les une par une ci-dessous, ou importez un fichier CSV.</div>
+  {% endif %}
+
+  {% if peut_modifier %}
+    <div style="padding:18px;border-top:1px solid var(--border);">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Ajouter une ligne à la main — utile pour une facture à l'unité, ou pour compléter une facture
+        créée sans détail. Une fois les lignes saisies, pensez à relancer le rapprochement ci-dessus.
+      </p>
+      <form method="post" action="{{ url_ligne_ajouter }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        {% csrf_token %}
+        {% for champ in form_ligne %}
+          <div class="champ" style="min-width:160px;">
+            <label for="{{ champ.id_for_label }}">{{ champ.label }}</label>
+            {{ champ }}
+          </div>
+        {% endfor %}
+        <button class="btn btn-secondaire" type="submit">Ajouter la ligne</button>
+      </form>
     </div>
   {% endif %}
 </section>

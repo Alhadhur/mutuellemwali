@@ -20,7 +20,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
-from facturation.models import MOIS, Facture, StatutFacture
+from facturation.models import MOIS, Facture, LigneFacture, StatutFacture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import STATUTS_MANUELS, Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TarifPrestataire
@@ -1159,6 +1159,8 @@ class FactureDetail(AccesBackoffice, DetailView):
         contexte["peut_supprimer"] = (
             self.object.statut != StatutFacture.VALIDEE and self.request.user.is_superuser
         )
+        contexte["form_ligne"] = styliser(forms.LigneFactureForm())
+        contexte["url_ligne_ajouter"] = reverse("backoffice:facture_ligne_ajouter", args=[self.object.pk])
         return contexte
 
 
@@ -1309,6 +1311,52 @@ class FactureRapprocher(AccesModification, View):
             f"{synthese['sans_prescription']} sans prescription, "
             f"{synthese['non_facturees']} prescription(s) non facturée(s).",
         )
+        return redirect("backoffice:facture_detail", pk=pk)
+
+
+class FactureLigneAjouter(AccesModification, View):
+    """Complète une facture ligne par ligne — même calcul de montant que
+    l'import CSV (voir importer_facture._montants), pour qu'une facture à
+    l'unité n'oblige pas à fabriquer un fichier d'une seule ligne.
+
+    N'effectue aucun rapprochement : « Relancer le rapprochement » reste un
+    geste à part, pour que l'écran montre toujours l'état réellement rejoué,
+    pas un état recalculé en douce à chaque ajout de ligne.
+    """
+
+    def post(self, request, pk):
+        from facturation.management.commands.importer_facture import LigneInvalide, _cout_total, _part_mutuelle
+
+        facture = get_object_or_404(Facture, pk=pk)
+        form = forms.LigneFactureForm(request.POST)
+        if not form.is_valid():
+            erreurs = "; ".join(f"{champ} : {', '.join(liste)}" for champ, liste in form.errors.items())
+            messages.error(request, f"Ligne invalide — {erreurs}")
+            return redirect("backoffice:facture_detail", pk=pk)
+
+        donnees = form.cleaned_data
+        taux = facture.prestataire.taux_prise_en_charge
+        try:
+            if donnees["montant_colonne"] == "total":
+                montant_soin = donnees["montant"]
+                montant_reclame = _part_mutuelle(montant_soin, taux)
+            else:
+                montant_reclame = donnees["montant"]
+                montant_soin = _cout_total(montant_reclame, taux)
+        except LigneInvalide as erreur:
+            messages.error(request, f"Ligne invalide — {erreur}")
+            return redirect("backoffice:facture_detail", pk=pk)
+
+        LigneFacture.objects.create(
+            facture=facture,
+            date_soin=donnees["date_soin"],
+            matricule=donnees["matricule"].upper(),
+            nom_beneficiaire=donnees["nom_beneficiaire"],
+            nature=donnees["nature"],
+            montant_soin=montant_soin,
+            montant_reclame=montant_reclame,
+        )
+        messages.success(request, "Ligne ajoutée — pensez à relancer le rapprochement.")
         return redirect("backoffice:facture_detail", pk=pk)
 
 
