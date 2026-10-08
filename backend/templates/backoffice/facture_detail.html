@@ -139,13 +139,17 @@
       <form method="post" action="{{ url_ligne_ajouter }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
         {% csrf_token %}
         {% for champ in form_ligne %}
-          <div class="champ" style="min-width:160px;">
+          <div class="champ{% if champ.name == 'matricule' %} recherche-agent{% endif %}" style="min-width:160px;">
             <label for="{{ champ.id_for_label }}">{{ champ.label }}</label>
             {{ champ }}
+            {% if champ.name == 'matricule' %}<div class="suggestions" id="suggestions-ligne-matricule"></div>{% endif %}
           </div>
         {% endfor %}
         <button class="btn btn-secondaire" type="submit">Ajouter la ligne</button>
       </form>
+      <div class="aide" style="margin-top:8px;">
+        Tapez un matricule, un nom ou un prénom pour retrouver un agent et préremplir son nom.
+      </div>
     </div>
   {% endif %}
 </section>
@@ -165,4 +169,59 @@
     </div>
   </section>
 {% endif %}
+{% endblock %}
+
+{% block script %}
+  {{ block.super }}
+  {% if form_ligne %}
+    <script>
+    (function () {
+      // Assiste la saisie manuelle d'une ligne (voir FactureLigneAjouter) :
+      // le matricule reste un texte libre — tel qu'écrit par le prestataire,
+      // y compris s'il est faux ou introuvable (voir AGENT_INCONNU au
+      // rapprochement) — mais on propose les agents qui correspondent pour
+      // éviter de retaper un nom déjà connu.
+      const champMatricule = document.getElementById('{{ form_ligne.matricule.id_for_label }}');
+      const champNom = document.getElementById('{{ form_ligne.nom_beneficiaire.id_for_label }}');
+      const suggestions = document.getElementById('suggestions-ligne-matricule');
+      if (!champMatricule || !suggestions) return;
+
+      const URL_AGENTS = "{% url 'backoffice:recherche_agents' %}";
+      let minuteur = null;
+
+      async function chercher(texte) {
+        const reponse = await fetch(URL_AGENTS + '?q=' + encodeURIComponent(texte));
+        const donnees = await reponse.json();
+        suggestions.innerHTML = '';
+        for (const agent of donnees.resultats) {
+          const bouton = document.createElement('button');
+          bouton.type = 'button';
+          bouton.innerHTML = '<span class="matricule"></span> — <span class="nom"></span><div class="site"></div>';
+          bouton.querySelector('.matricule').textContent = agent.matricule;
+          bouton.querySelector('.nom').textContent = agent.nom;
+          bouton.querySelector('.site').textContent = agent.site;
+          bouton.addEventListener('click', () => {
+            champMatricule.value = agent.matricule;
+            if (champNom && !champNom.value.trim()) champNom.value = agent.nom;
+            suggestions.innerHTML = '';
+          });
+          suggestions.appendChild(bouton);
+        }
+      }
+
+      champMatricule.addEventListener('input', () => {
+        clearTimeout(minuteur);
+        const texte = champMatricule.value.trim();
+        if (texte.length < 2) { suggestions.innerHTML = ''; return; }
+        minuteur = setTimeout(() => chercher(texte), 200);
+      });
+
+      document.addEventListener('click', (evenement) => {
+        if (!suggestions.contains(evenement.target) && evenement.target !== champMatricule) {
+          suggestions.innerHTML = '';
+        }
+      });
+    })();
+    </script>
+  {% endif %}
 {% endblock %}

@@ -1070,6 +1070,19 @@ class FactureLigneAjouterTest(BaseBackoffice):
         self.assertContains(reponse, "Fatima Zahra")
         self.assertContains(reponse, "10000")
 
+    def test_le_formulaire_propose_la_recherche_d_agent(self):
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertContains(reponse, reverse("backoffice:recherche_agents"))
+        self.assertContains(reponse, "suggestions-ligne-matricule")
+
+    def test_la_direction_ne_voit_pas_le_formulaire_d_ajout(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertNotContains(reponse, reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]))
+
 
 class FactureListeFiltresTest(BaseBackoffice):
     def setUp(self):
