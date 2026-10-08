@@ -757,6 +757,24 @@ class PrescriptionDetailActionsTest(BaseBackoffice):
 
         self.assertNotContains(reponse, self._url_modifier())
 
+    def test_le_rh_voit_le_bouton_saisir_une_prescription_meme_decidee(self):
+        """Indépendant du statut de CETTE prescription : contrairement à
+        « Modifier », ouvrir une nouvelle saisie n'a rien à voir avec l'état
+        de celle qu'on regarde."""
+        self.prescription.changer_statut(StatutPrescription.VALIDEE, utilisateur=self.rh)
+        self.client.force_login(self.rh)
+
+        reponse = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+
+        self.assertContains(reponse, reverse("backoffice:prescription_creer"))
+
+    def test_la_direction_ne_voit_pas_le_bouton_saisir_une_prescription(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+
+        self.assertNotContains(reponse, reverse("backoffice:prescription_creer"))
+
     def test_le_rh_garde_la_main_sur_le_changement_de_statut_meme_decidee(self):
         """Valider/rejeter/remettre en contrôle reste possible à tout moment
         pour corriger une décision — contrairement à l'édition des champs et

@@ -9,6 +9,9 @@
   {% if peut_modifier_champs %}
     <a class="btn" href="{% url 'backoffice:prescription_modifier' prescription.pk %}">Modifier</a>
   {% endif %}
+  {% if peut_modifier %}
+    <a class="btn btn-secondaire" href="{% url 'backoffice:prescription_creer' %}">Saisir une prescription</a>
+  {% endif %}
 </div>
 
 <section>
