@@ -101,10 +101,18 @@ class Prescription(models.Model):
 
     def detecter_doublons(self):
         """Retourne le queryset des prescriptions existantes qui rendent
-        cette prescription suspecte : même agent, même prestataire, et
+        cette prescription suspecte : même agent, même prestataire, même
+        bénéficiaire (l'agent lui-même ou le même ayant droit), et
         (même numéro d'ordonnance) OU (montant identique à quelques jours
-        d'écart)."""
-        qs = Prescription.objects.filter(agent=self.agent, prestataire=self.prestataire).exclude(pk=self.pk)
+        d'écart).
+
+        Le bénéficiaire compte : un agent qui soumet le même jour, chez le
+        même prestataire, deux ordonnances de montant identique — une pour
+        lui, une pour son enfant — ne doit pas être signalé comme doublon.
+        """
+        qs = Prescription.objects.filter(
+            agent=self.agent, prestataire=self.prestataire, ayant_droit=self.ayant_droit
+        ).exclude(pk=self.pk)
 
         meme_numero = qs.filter(numero_ordonnance=self.numero_ordonnance)
 
@@ -188,8 +196,8 @@ class Prescription(models.Model):
                 numeros = ", ".join(sorted(set(doublons.values_list("numero_ordonnance", flat=True))))
                 self.motif_signalement = (
                     "Doublon potentiel détecté avec la/les prescription(s) portant le(s) "
-                    f"numéro(s) {numeros} (même agent, même prestataire, numéro ou montant "
-                    f"identique à ±{FENETRE_DOUBLON_JOURS} jours)."
+                    f"numéro(s) {numeros} (même agent, même prestataire, même bénéficiaire, "
+                    f"numéro ou montant identique à ±{FENETRE_DOUBLON_JOURS} jours)."
                 )
             if self.ayant_droit_hors_couverture:
                 self.statut = StatutPrescription.EN_CONTROLE

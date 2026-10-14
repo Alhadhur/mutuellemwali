@@ -336,6 +336,93 @@ class DateEmissionTest(BasePrescriptions):
         self.assertIn("date_emission", erreur.exception.message_dict)
 
 
+class DoublonBeneficiaireTest(BasePrescriptions):
+    """Le contrôle de doublon doit distinguer les bénéficiaires : un agent
+    qui soumet, le même jour chez le même prestataire, deux ordonnances de
+    montant identique — une pour lui, une pour son enfant — ne doit pas être
+    signalé comme doublon."""
+
+    def setUp(self):
+        super().setUp()
+        self.enfant = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Enfant",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
+
+    def test_memes_agent_prestataire_montant_mais_beneficiaires_differents_n_est_pas_un_doublon(self):
+        Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-1",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+        pour_enfant = Prescription(
+            agent=self.agent,
+            ayant_droit=self.enfant,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-2",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        self.assertEqual(pour_enfant.detecter_doublons().count(), 0)
+
+    def test_meme_beneficiaire_reste_detecte_comme_doublon(self):
+        Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=self.enfant,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-1",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+        autre_pour_enfant = Prescription(
+            agent=self.agent,
+            ayant_droit=self.enfant,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-2",
+            montant_total=10000,
+            date_emission=date.today(),
+            justificatif="x.jpg",
+        )
+
+        self.assertEqual(autre_pour_enfant.detecter_doublons().count(), 1)
+
+    def test_la_saisie_pour_un_ayant_droit_apres_celle_de_l_agent_n_est_pas_mise_en_controle(self):
+        """Bout en bout, via le formulaire RH — pas seulement au niveau du
+        modèle : les deux prescriptions doivent rester « Soumise »."""
+        rh = Utilisateur.objects.create_user("RH1", "x", nom="Rh", prenom="Service", role=Role.RH)
+        self.client.force_login(rh)
+
+        def donnees(ayant_droit):
+            return {
+                "agent": self.agent.pk,
+                "ayant_droit": ayant_droit,
+                "prestataire": self.prestataire.pk,
+                "nature": NatureSoin.objects.get(libelle="Consultation").pk,
+                "montant_total": "10000",
+                "date_emission": date.today().isoformat(),
+                "justificatif": SimpleUploadedFile("scan.jpg", b"contenu", content_type="image/jpeg"),
+            }
+
+        self.client.post("/backoffice/prescriptions/nouvelle/", donnees(""))
+        self.client.post("/backoffice/prescriptions/nouvelle/", donnees(self.enfant.pk))
+
+        self.assertEqual(
+            list(Prescription.objects.values_list("statut", flat=True).order_by("date_creation")),
+            [StatutPrescription.SOUMISE, StatutPrescription.SOUMISE],
+        )
+
+
 class AyantDroitHorsCouvertureTest(BasePrescriptions):
     """Un enfant qui a dépassé l'âge limite de couverture ne coûte plus rien
     à la mutuelle : une prescription qui lui est quand même soumise doit être
