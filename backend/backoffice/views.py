@@ -1925,20 +1925,30 @@ class RapportsView(AccesBackoffice, TemplateView):
         contexte["debut"] = debut
         contexte["fin"] = fin
         contexte["synthese"] = rapports_services.activite_globale(debut, fin)
-        contexte["tableaux"] = [
-            {
-                "cle": tableau.cle,
-                "titre": tableau.titre,
-                "description": tableau.description,
-                "suit_la_periode": tableau.suit_la_periode,
-                "colonnes": [libelle for libelle, _ in tableau.colonnes],
-                "lignes": [
-                    [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes]
-                    for objet in tableau.lignes(debut, fin)
-                ],
-            }
-            for tableau in tableaux.RAPPORTS
-        ]
+
+        tableaux_contexte = []
+        for tableau in tableaux.RAPPORTS:
+            toutes_les_lignes = tableau.lignes(debut, fin)
+            nombre_total = len(toutes_les_lignes)
+            lignes_affichees = (
+                toutes_les_lignes[: tableau.limite_ecran] if tableau.limite_ecran else toutes_les_lignes
+            )
+            tableaux_contexte.append(
+                {
+                    "cle": tableau.cle,
+                    "titre": tableau.titre,
+                    "description": tableau.description,
+                    "suit_la_periode": tableau.suit_la_periode,
+                    "colonnes": [libelle for libelle, _ in tableau.colonnes],
+                    "lignes": [
+                        [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes]
+                        for objet in lignes_affichees
+                    ],
+                    "nombre_total": nombre_total,
+                    "tronque": bool(tableau.limite_ecran) and nombre_total > tableau.limite_ecran,
+                }
+            )
+        contexte["tableaux"] = tableaux_contexte
         return contexte
 
 

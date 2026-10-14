@@ -61,7 +61,7 @@
   <section>
     <h2>
       {{ tableau.titre }}
-      <span class="compteur compteur--neutre">{{ tableau.lignes|length }}</span>
+      <span class="compteur compteur--neutre">{{ tableau.nombre_total }}</span>
       <a class="btn btn-secondaire btn-petit lien-export"
          href="{% url 'backoffice:rapports_export_un' tableau.cle %}?debut={{ debut|date:'Y-m-d' }}&amp;fin={{ fin|date:'Y-m-d' }}">
         Exporter
@@ -82,6 +82,13 @@
           </tbody>
         </table>
       </div>
+      {% if tableau.tronque %}
+        <div class="note-tableau">
+          Affiche les {{ tableau.lignes|length }} premiers sur {{ tableau.nombre_total }} —
+          <a href="{% url 'backoffice:rapports_export_un' tableau.cle %}?debut={{ debut|date:'Y-m-d' }}&amp;fin={{ fin|date:'Y-m-d' }}">exportez le tableau complet</a>
+          pour voir tous les agents.
+        </div>
+      {% endif %}
     {% else %}
       <div class="empty">Aucune donnée sur la période.</div>
     {% endif %}

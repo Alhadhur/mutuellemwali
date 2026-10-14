@@ -21,6 +21,11 @@ class Tableau:
     # Certaines familles ne dépendent pas de la période choisie (une file
     # d'attente, un justificatif périmé) : l'écran le signale au lecteur.
     suit_la_periode: bool = True
+    # Une famille par agent (fréquence des consultations…) grandit avec
+    # l'effectif : l'écran n'en montre que les N premiers (déjà triés par
+    # pertinence côté source) et renvoie à l'export pour la liste complète.
+    # L'export, lui, ignore toujours cette limite — voir RapportsView.
+    limite_ecran: int | None = None
 
     def lignes(self, debut, fin):
         return self.source(debut, fin) if self.suit_la_periode else self.source()
@@ -199,6 +204,7 @@ RAPPORTS: tuple[Tableau, ...] = (
             ("Coût total (KMF)", "montant"),
             ("Panier moyen (KMF)", "panier_moyen"),
         ),
+        limite_ecran=20,
     ),
     Tableau(
         cle="distribution",

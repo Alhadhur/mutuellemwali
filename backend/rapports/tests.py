@@ -250,3 +250,40 @@ class ExportRapportsTest(BaseRapports):
 
         self.assertEqual(self.client.get(reverse("backoffice:rapports")).status_code, 403)
         self.assertEqual(self.client.get(reverse("backoffice:rapports_export")).status_code, 403)
+
+
+class FrequenceEcranLimiteeTest(BaseRapports):
+    """Avec beaucoup d'agents consommateurs, la liste à l'écran ne doit pas
+    grandir sans limite — voir Tableau.limite_ecran. L'export, lui, garde
+    toujours la liste complète."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        # self.agent et self.autre_agent ont chacun déjà leur propre matricule ;
+        # 23 de plus donnent 25 agents consommateurs au total, au-delà de la
+        # limite de 20 fixée sur ce tableau.
+        self.matricules = ["A0001", "A0002"]
+        for i in range(23):
+            matricule = f"A{100 + i}"
+            agent = self.creer_agent(matricule, "Perf", f"Agent{i}", site="Moroni", region="Ngazidja")
+            self.prescription(agent, 1000 + i)
+            self.matricules.append(matricule)
+        self.prescription(self.agent, 5000)
+        self.prescription(self.autre_agent, 5000)
+
+    def test_l_ecran_plafonne_la_liste_mais_garde_le_vrai_total(self):
+        reponse = self.client.get(reverse("backoffice:rapports"))
+        tableau = next(t for t in reponse.context["tableaux"] if t["cle"] == "frequence")
+
+        self.assertEqual(tableau["nombre_total"], 25)
+        self.assertEqual(len(tableau["lignes"]), 20)
+        self.assertTrue(tableau["tronque"])
+        self.assertContains(reponse, "exportez le tableau complet")
+
+    def test_l_export_garde_les_25_agents(self):
+        reponse = self.client.get(reverse("backoffice:rapports_export_un", args=["frequence"]))
+
+        lignes = list(csv.reader(io.StringIO(reponse.content.decode("utf-8-sig")), delimiter=";"))
+        matricules_exportes = {l[0] for l in lignes if l and l[0] in self.matricules}
+        self.assertEqual(matricules_exportes, set(self.matricules))
