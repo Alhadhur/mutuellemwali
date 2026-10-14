@@ -160,7 +160,11 @@ class AyantDroit(models.Model):
     photo = models.ImageField(upload_to="photos_ayants_droit/", blank=True, null=True)
     lien_parente = models.CharField(max_length=20, choices=LienParente.choices)
     type_justificatif = models.CharField(max_length=30, choices=TypeJustificatif.choices)
-    justificatif = models.FileField(upload_to="justificatifs_ayants_droit/")
+    justificatif = models.FileField(
+        upload_to="justificatifs_ayants_droit/",
+        blank=True,
+        help_text="Facultatif à la saisie : à joindre dès que possible pour permettre la vérification du dossier.",
+    )
     date_validite = models.DateField(
         null=True, blank=True, help_text="Laisser vide si le justificatif n'expire pas."
     )

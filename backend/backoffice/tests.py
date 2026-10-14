@@ -839,6 +839,26 @@ class AyantDroitTest(BaseBackoffice):
         self.assertEqual(self.ayant_droit.verifie_par, self.rh)
         self.assertIsNotNone(self.ayant_droit.date_verification)
 
+    def test_la_creation_n_exige_pas_de_justificatif(self):
+        """Le justificatif reste utile pour la vérification du dossier, mais
+        ne doit pas bloquer la saisie tant qu'il n'est pas encore en main
+        (dossier papier à récupérer, scan à faire plus tard)."""
+        self.client.force_login(self.rh)
+
+        reponse = self.client.post(
+            reverse("backoffice:ayant_droit_creer"),
+            {
+                "agent": self.agent.pk,
+                "nom": "Zahra",
+                "prenom": "Sans Justificatif",
+                "lien_parente": LienParente.ENFANT,
+                "type_justificatif": TypeJustificatif.ACTE_NAISSANCE,
+            },
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:ayants_droit"))
+        self.assertTrue(AyantDroit.objects.filter(prenom="Sans Justificatif").exists())
+
 
 class AyantDroitFiltresTest(BaseBackoffice):
     """Avec plusieurs milliers d'ayants droit, il faut pouvoir repérer d'un
