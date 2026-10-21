@@ -150,6 +150,12 @@ class Prescription(models.Model):
     def clean(self):
         if self.ayant_droit_id and self.ayant_droit.agent_id != self.agent_id:
             raise ValidationError("L'ayant droit sélectionné n'appartient pas à cet agent.")
+        # Seulement à la création : une prescription déjà enregistrée doit
+        # pouvoir être corrigée par le service mutuelle, même suspendue.
+        if self._state.adding and self.agent_id and self.date_emission:
+            blocage = self.agent.message_blocage_suspension(self.date_emission)
+            if blocage:
+                raise ValidationError(blocage)
         # Le champ date est un <input type="date"> du navigateur : si l'année
         # n'est pas complétée sur 4 chiffres avant l'envoi, rien ne bloquait
         # jusqu'ici une date aussi improbable (ex. 26 au lieu de 2026) — la

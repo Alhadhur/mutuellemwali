@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -53,3 +55,25 @@ class SoumettrePrescriptionTest(TestCase):
         self.assertEqual(reponse.status_code, 400)
         self.assertIn("date_emission", reponse.data)
         self.assertEqual(Prescription.objects.count(), 0)
+
+    def test_un_agent_suspendu_est_bloque_des_la_soumission(self):
+        self.agent.suspendu_du = date(2026, 10, 1)
+        self.agent.motif_suspension = "Fraude"
+        self.agent.save()
+
+        reponse = self.client.post("/api/prescriptions/", self._donnees(), format="multipart")
+
+        self.assertEqual(reponse.status_code, 400)
+        message = " ".join(reponse.data["non_field_errors"])
+        self.assertIn("Dossier suspendu du 01/10/2026", message)
+        self.assertNotIn("Fraude", message)
+        self.assertEqual(Prescription.objects.count(), 0)
+
+    def test_un_soin_hors_periode_de_suspension_reste_soumissible(self):
+        self.agent.suspendu_du = date(2026, 11, 1)
+        self.agent.motif_suspension = "Fraude"
+        self.agent.save()
+
+        reponse = self.client.post("/api/prescriptions/", self._donnees(), format="multipart")
+
+        self.assertEqual(reponse.status_code, 201)

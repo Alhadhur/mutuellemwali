@@ -227,6 +227,16 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate(self, donnees):
+        """Même blocage que Prescription.clean(), qu'un ModelSerializer
+        n'appelle pas : l'agent suspendu est arrêté dès la soumission."""
+        agent = self.context["request"].user.agent
+        if self.instance is None and donnees.get("date_emission"):
+            blocage = agent.message_blocage_suspension(donnees["date_emission"])
+            if blocage:
+                raise serializers.ValidationError(blocage)
+        return donnees
+
     def create(self, validated_data):
         request = self.context["request"]
         validated_data["agent"] = request.user.agent

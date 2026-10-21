@@ -119,6 +119,19 @@ class Agent(models.Model):
             return "Suspendu"
         return "Actif"
 
+    def message_blocage_suspension(self, jour):
+        """Message opposé à toute nouvelle soumission (mobile, web, saisie
+        RH) pour un soin daté dans la période de suspension — chaîne vide
+        sinon. Le motif de la suspension n'y figure pas : l'agent le lit."""
+        if not self.est_suspendu_le(jour):
+            return ""
+        fin = f"jusqu'au {self.suspendu_jusqu_au:%d/%m/%Y}" if self.suspendu_jusqu_au else "jusqu'à nouvel ordre"
+        return (
+            f"Dossier suspendu du {self.suspendu_du:%d/%m/%Y} {fin} : aucune prescription ne peut être "
+            "soumise pour un soin de cette période, ni pour l'agent ni pour ses ayants droit. "
+            "Rapprochez-vous du service mutuelle."
+        )
+
     def motif_non_couverture(self, jour):
         """Raison pour laquelle un soin daté de `jour` n'est pas couvert du
         fait de l'agent (sortie ou suspension) — chaîne vide s'il l'est.

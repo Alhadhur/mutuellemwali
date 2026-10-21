@@ -618,3 +618,55 @@ class SuspensionSortieFinCouvertureTest(BasePrescriptions):
         with self.assertRaises(ValidationError) as erreur:
             self.conjoint.full_clean()
         self.assertIn("motif_fin_couverture", erreur.exception.message_dict)
+
+
+class BlocageAgentSuspenduTest(BasePrescriptions):
+    """Un agent suspendu est arrêté dès la soumission, avec un message clair,
+    plutôt que de voir sa prescription passer en contrôle après coup."""
+
+    def setUp(self):
+        super().setUp()
+        self.agent.suspendu_du = date.today() - timedelta(days=10)
+        self.agent.motif_suspension = "Fraude"
+        self.agent.save()
+        self.nature = NatureSoin.objects.get(libelle="Consultation")
+
+    def donnees(self, **surcharges):
+        valeurs = {
+            "ayant_droit": "",
+            "prestataire": self.prestataire.pk,
+            "nature": self.nature.pk,
+            "montant_total": "10000",
+            "date_emission": date.today().isoformat(),
+        }
+        valeurs.update(surcharges)
+        return valeurs
+
+    def test_la_saisie_rh_est_refusee(self):
+        rh = Utilisateur.objects.create_user("RH1", "x", nom="Rh", prenom="Service", role=Role.RH)
+        self.client.force_login(rh)
+
+        reponse = self.client.post("/backoffice/prescriptions/nouvelle/", self.donnees(agent=self.agent.pk))
+
+        self.assertContains(reponse, "Dossier suspendu du")
+        self.assertEqual(Prescription.objects.count(), 0)
+
+    def test_l_auto_saisie_de_l_agent_est_refusee(self):
+        self.client.force_login(self.agent.utilisateur)
+
+        reponse = self.client.post("/backoffice/mon-tableau-de-bord/prescription/", self.donnees())
+
+        self.assertContains(reponse, "Dossier suspendu du")
+        self.assertNotContains(reponse, "Fraude")
+        self.assertEqual(Prescription.objects.count(), 0)
+
+    def test_une_prescription_existante_reste_corrigeable(self):
+        prescription = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            montant_total=10000,
+            date_emission=date.today(),
+        )
+        prescription.montant_total = 9000
+
+        prescription.clean()  # ne lève pas : le blocage ne vise que la création

@@ -239,7 +239,12 @@ class ApiService {
 
   String _formatErrors(dynamic body) {
     if (body is Map) {
-      return body.entries.map((e) => '${e.key} : ${e.value is List ? (e.value as List).join(", ") : e.value}').join('\n');
+      // Une erreur générale (non liée à un champ) se lit telle quelle, sans
+      // le nom technique de la clé.
+      return body.entries.map((e) {
+        final texte = e.value is List ? (e.value as List).join(", ") : '${e.value}';
+        return (e.key == 'non_field_errors' || e.key == 'detail') ? texte : '${e.key} : $texte';
+      }).join('\n');
     }
     return 'Erreur inconnue.';
   }
