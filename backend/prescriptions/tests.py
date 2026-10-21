@@ -510,3 +510,111 @@ class AyantDroitHorsCouvertureTest(BasePrescriptions):
 
         self.assertEqual(prescription.montant_rembourse, 8000)
         self.assertEqual(prescription.statut, StatutPrescription.SOUMISE)
+
+
+class SuspensionSortieFinCouvertureTest(BasePrescriptions):
+    """Fraude (suspension temporaire), départ de la mutuelle, divorce : dans
+    les trois cas le dossier est conservé, mais les soins datés dans la
+    période non couverte sont mis en contrôle sans remboursement."""
+
+    def setUp(self):
+        super().setUp()
+        self.conjoint = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Ali",
+            lien_parente=LienParente.CONJOINT,
+            type_justificatif=TypeJustificatif.ACTE_MARIAGE,
+            statut_verification=StatutVerification.VALIDE,
+        )
+
+    def soumettre(self, jour, ayant_droit=None, montant=10000):
+        return Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=ayant_droit,
+            prestataire=self.prestataire,
+            montant_total=montant,
+            date_emission=jour,
+        )
+
+    def test_un_agent_suspendu_n_est_pas_rembourse_ni_ses_ayants_droit(self):
+        self.agent.suspendu_du = date(2026, 3, 1)
+        self.agent.suspendu_jusqu_au = date(2026, 5, 31)
+        self.agent.motif_suspension = "Fraude"
+        self.agent.save()
+
+        pour_lui = self.soumettre(date(2026, 4, 10))
+        pour_conjoint = self.soumettre(date(2026, 4, 10), ayant_droit=self.conjoint, montant=7000)
+
+        for prescription in (pour_lui, pour_conjoint):
+            self.assertEqual(prescription.montant_rembourse, 0)
+            self.assertEqual(prescription.statut, StatutPrescription.EN_CONTROLE)
+            self.assertIn("Agent suspendu", prescription.motif_signalement)
+
+    def test_la_suspension_ne_couvre_que_sa_periode(self):
+        self.agent.suspendu_du = date(2026, 3, 1)
+        self.agent.suspendu_jusqu_au = date(2026, 5, 31)
+        self.agent.motif_suspension = "Fraude"
+        self.agent.save()
+
+        avant = self.soumettre(date(2026, 2, 27))
+        apres = self.soumettre(date(2026, 6, 1), montant=9000)
+
+        self.assertEqual(avant.montant_rembourse, 8000)
+        self.assertEqual(apres.montant_rembourse, 7200)
+        self.assertEqual(apres.statut, StatutPrescription.SOUMISE)
+
+    def test_une_suspension_sans_echeance_court_jusqu_a_sa_levee(self):
+        self.agent.suspendu_du = date(2026, 3, 1)
+        self.agent.motif_suspension = "Fraude"
+        self.agent.save()
+
+        self.assertEqual(self.soumettre(date(2030, 1, 1)).montant_rembourse, 0)
+
+    def test_un_agent_sorti_n_est_plus_rembourse_apres_sa_sortie(self):
+        self.agent.actif = False
+        self.agent.date_sortie = date(2026, 6, 30)
+        self.agent.save()
+
+        avant = self.soumettre(date(2026, 6, 15))
+        apres = self.soumettre(date(2026, 7, 2), ayant_droit=self.conjoint, montant=9000)
+
+        self.assertEqual(avant.montant_rembourse, 8000)
+        self.assertEqual(apres.montant_rembourse, 0)
+        self.assertIn("quitté la mutuelle", apres.motif_signalement)
+
+    def test_un_partenaire_divorce_n_est_plus_couvert(self):
+        self.conjoint.date_fin_couverture = date(2026, 6, 30)
+        self.conjoint.motif_fin_couverture = "DIVORCE"
+        self.conjoint.save()
+
+        avant = self.soumettre(date(2026, 6, 15), ayant_droit=self.conjoint)
+        apres = self.soumettre(date(2026, 7, 2), ayant_droit=self.conjoint, montant=9000)
+        agent = self.soumettre(date(2026, 7, 2), montant=5000)
+
+        self.assertEqual(avant.montant_rembourse, 8000)
+        self.assertEqual(apres.montant_rembourse, 0)
+        self.assertIn("divorce", apres.motif_signalement)
+        self.assertEqual(agent.montant_rembourse, 4000)
+
+    def test_un_partenaire_divorce_ne_compte_plus_dans_la_composition_familiale(self):
+        self.assertEqual(self.agent.nombre_conjoints, 1)
+
+        self.conjoint.date_fin_couverture = date.today() - timedelta(days=1)
+        self.conjoint.motif_fin_couverture = "DIVORCE"
+        self.conjoint.save()
+
+        self.assertEqual(Agent.objects.get(pk=self.agent.pk).nombre_conjoints, 0)
+
+    def test_les_saisies_incoherentes_sont_refusees(self):
+        self.agent.actif = False
+        self.agent.suspendu_jusqu_au = date(2026, 1, 1)
+        with self.assertRaises(ValidationError) as erreur:
+            self.agent.full_clean()
+        self.assertIn("date_sortie", erreur.exception.message_dict)
+        self.assertIn("suspendu_du", erreur.exception.message_dict)
+
+        self.conjoint.date_fin_couverture = date(2026, 6, 30)
+        with self.assertRaises(ValidationError) as erreur:
+            self.conjoint.full_clean()
+        self.assertIn("motif_fin_couverture", erreur.exception.message_dict)

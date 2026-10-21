@@ -11,6 +11,27 @@
   {% endif %}
 </div>
 
+{% if agent.est_sorti %}
+  <div class="message error">
+    <strong>Agent sorti de la mutuelle</strong>{% if agent.date_sortie %} le {{ agent.date_sortie|date:"d/m/Y" }}{% endif %}{% if agent.motif_sortie %} — {{ agent.motif_sortie }}{% endif %}.
+    Les soins datés après la sortie ne sont plus remboursés, pour lui comme pour ses ayants droit.
+  </div>
+{% elif agent.suspendu_du %}
+  {% if agent.est_suspendu %}
+    <div class="message error">
+      <strong>Agent suspendu</strong> du {{ agent.suspendu_du|date:"d/m/Y" }}
+      {% if agent.suspendu_jusqu_au %}au {{ agent.suspendu_jusqu_au|date:"d/m/Y" }}{% else %}sans échéance{% endif %}
+      — {{ agent.motif_suspension }}. Ni lui ni ses ayants droit ne sont remboursés pour les soins datés dans cette période.
+    </div>
+  {% else %}
+    <div class="message">
+      Suspension enregistrée du {{ agent.suspendu_du|date:"d/m/Y" }}
+      {% if agent.suspendu_jusqu_au %}au {{ agent.suspendu_jusqu_au|date:"d/m/Y" }}{% endif %}
+      — {{ agent.motif_suspension }} (hors période aujourd'hui).
+    </div>
+  {% endif %}
+{% endif %}
+
 <section>
   <h2>Dossier</h2>
   <div class="fiche">
@@ -25,7 +46,7 @@
     <div><span>Enveloppe du cycle</span><strong>{{ agent.quota_effectif }} KMF</strong></div>
     <div><span>Consommé sur le cycle</span><strong>{{ agent.consommation_periode }} KMF</strong></div>
     <div><span>Solde restant</span><strong>{{ agent.solde_quota }} KMF</strong></div>
-    <div><span>Statut</span><strong>{% if agent.actif %}Actif{% else %}Inactif{% endif %}</strong></div>
+    <div><span>Statut</span><strong>{{ agent.libelle_statut }}</strong></div>
   </div>
 </section>
 
@@ -56,7 +77,10 @@
             {% if a.age is None %}—{% else %}{{ a.age }} ans{% endif %}
             {% if a.limite_age_depassee %}<span class="badge badge-danger">limite {{ a.age_limite }} ans</span>{% endif %}
           </td>
-          <td>{{ a.get_statut_verification_display }}</td>
+          <td>
+            {{ a.get_statut_verification_display }}
+            {% if a.couverture_terminee %}<span class="badge badge-danger">Plus couvert depuis le {{ a.date_fin_couverture|date:"d/m/Y" }} ({{ a.get_motif_fin_couverture_display|lower }})</span>{% endif %}
+          </td>
           <td>{% if a.est_expire %}<span class="badge badge-danger">Expiré</span>{% else %}OK{% endif %}</td>
           <td style="text-align:right;">
             <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:ayant_droit_modifier' a.pk %}">Ouvrir</a>

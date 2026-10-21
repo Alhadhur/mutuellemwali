@@ -468,7 +468,7 @@ class AgentListe(ListeBase):
         ("Famille", lambda o: f"{o.nombre_conjoints} conj. · {o.nombre_enfants} enf."),
         ("Cotisation", lambda o: f"{o.cotisation_mensuelle} KMF"),
         ("Solde du cycle", lambda o: f"{o.solde_quota()} KMF"),
-        ("Actif", "actif"),
+        ("Statut", "libelle_statut"),
     )
 
     def get_queryset(self):
@@ -529,6 +529,9 @@ class AyantDroitListe(ListeBase):
                     [
                         "Justificatif expiré" if o.est_expire else "",
                         "Limite d'âge dépassée" if o.limite_age_depassee else "",
+                        f"Couverture terminée ({o.get_motif_fin_couverture_display().lower()})"
+                        if o.couverture_terminee
+                        else "",
                     ],
                 )
             )

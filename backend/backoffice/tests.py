@@ -1606,3 +1606,33 @@ class ImportsWebTest(BaseBackoffice):
         self.client.post(reverse("backoffice:facture_import"), {"confirmer": "1"})
 
         self.assertTrue(Facture.objects.filter(numero="F-1").exists())
+
+
+class AgentStatutCouvertureTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def test_la_fiche_signale_une_suspension_en_cours(self):
+        self.agent.suspendu_du = date.today() - timedelta(days=3)
+        self.agent.motif_suspension = "Fraude sur ordonnances"
+        self.agent.save()
+
+        reponse = self.client.get(reverse("backoffice:agent_detail", args=[self.agent.pk]))
+
+        self.assertContains(reponse, "Agent suspendu")
+        self.assertContains(reponse, "Fraude sur ordonnances")
+
+    def test_le_formulaire_exige_la_date_de_sortie(self):
+        donnees = {
+            "utilisateur": self.agent.utilisateur.pk,
+            "site": self.agent.site,
+            "motif_sortie": "Démission",
+        }
+
+        reponse = self.client.post(reverse("backoffice:agent_modifier", args=[self.agent.pk]), donnees)
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, "Indiquez la date de sortie")
+        self.agent.refresh_from_db()
+        self.assertTrue(self.agent.actif)

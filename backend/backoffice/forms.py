@@ -112,8 +112,25 @@ class AgentForm(forms.ModelForm):
 
     class Meta:
         model = Agent
-        fields = ["utilisateur", "site", "date_naissance", "date_embauche", "actif"]
-        widgets = {"date_naissance": DateInput, "date_embauche": DateInput}
+        fields = [
+            "utilisateur",
+            "site",
+            "date_naissance",
+            "date_embauche",
+            "actif",
+            "date_sortie",
+            "motif_sortie",
+            "suspendu_du",
+            "suspendu_jusqu_au",
+            "motif_suspension",
+        ]
+        widgets = {
+            "date_naissance": DateInput,
+            "date_embauche": DateInput,
+            "date_sortie": DateInput,
+            "suspendu_du": DateInput,
+            "suspendu_jusqu_au": DateInput,
+        }
 
 
 class AyantDroitForm(forms.ModelForm):
@@ -132,8 +149,10 @@ class AyantDroitForm(forms.ModelForm):
             "type_justificatif",
             "justificatif",
             "date_validite",
+            "date_fin_couverture",
+            "motif_fin_couverture",
         ]
-        widgets = {"date_naissance": DateInput, "date_validite": DateInput}
+        widgets = {"date_naissance": DateInput, "date_validite": DateInput, "date_fin_couverture": DateInput}
 
 
 class BasePrescriptionForm(forms.ModelForm):

@@ -148,6 +148,7 @@ def _etat_quotas_agents():
             for a in agent.ayants_droit.all()
             if a.statut_verification == StatutVerification.VALIDE
             and not a.limite_age_depassee_pour(age_limite_enfant)
+            and not a.couverture_terminee
         ]
         avec_conjoint = any(a.lien_parente == LienParente.CONJOINT for a in couverts)
         nombre_enfants = sum(1 for a in couverts if a.lien_parente == LienParente.ENFANT)

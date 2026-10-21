@@ -172,6 +172,29 @@ class Prescription(models.Model):
         suspendu, ça ne doit ni se rembourser ni passer inaperçu."""
         return bool(self.ayant_droit_id and self.ayant_droit.limite_age_depassee)
 
+    def motifs_non_eligibilite(self):
+        """Toutes les raisons pour lesquelles ce soin n'est pas remboursable —
+        liste vide s'il l'est. Chacune met la prescription en contrôle à la
+        soumission, avec un remboursement à zéro."""
+        motifs = []
+        motif_agent = self.agent.motif_non_couverture(self.date_emission)
+        if motif_agent:
+            motifs.append(motif_agent)
+        if self.ayant_droit_hors_couverture:
+            motifs.append(
+                f"{self.ayant_droit.prenom} {self.ayant_droit.nom} a dépassé l'âge limite de couverture "
+                f"({self.ayant_droit.age_limite} ans) : non éligible au remboursement."
+            )
+        if self.ayant_droit_id and self.ayant_droit.couverture_terminee_le(self.date_emission):
+            motifs.append(
+                f"{self.ayant_droit.prenom} {self.ayant_droit.nom} n'est plus couvert(e) depuis le "
+                f"{self.ayant_droit.date_fin_couverture:%d/%m/%Y} "
+                f"({self.ayant_droit.get_motif_fin_couverture_display().lower()}) : non éligible au remboursement."
+            )
+        if not self.prestataire.est_actif:
+            motifs.append("Prestataire suspendu : non éligible au remboursement.")
+        return motifs
+
     def save(self, *args, detecter=True, **kwargs):
         """`detecter=False` charge la prescription telle quelle : réservé à
         l'import d'un historique déjà arbitré, dont les statuts et montants
@@ -185,9 +208,9 @@ class Prescription(models.Model):
         if est_nouvelle and not self.numero_ordonnance:
             self.numero_ordonnance = self._generer_numero_ordonnance()
 
+        motifs_non_eligibilite = self.motifs_non_eligibilite() if detecter else []
         if detecter:
-            eligible = self.prestataire.est_actif and not self.ayant_droit_hors_couverture
-            self.montant_rembourse = self.calculer_montant_rembourse() if eligible else 0
+            self.montant_rembourse = 0 if motifs_non_eligibilite else self.calculer_montant_rembourse()
 
         if est_nouvelle and detecter:
             doublons = self.detecter_doublons()
@@ -199,17 +222,9 @@ class Prescription(models.Model):
                     f"numéro(s) {numeros} (même agent, même prestataire, même bénéficiaire, "
                     f"numéro ou montant identique à ±{FENETRE_DOUBLON_JOURS} jours)."
                 )
-            if self.ayant_droit_hors_couverture:
+            for motif in motifs_non_eligibilite:
                 self.statut = StatutPrescription.EN_CONTROLE
-                self.motif_signalement = (self.motif_signalement + " " if self.motif_signalement else "") + (
-                    f"{self.ayant_droit.prenom} {self.ayant_droit.nom} a dépassé l'âge limite de couverture "
-                    f"({self.ayant_droit.age_limite} ans) : non éligible au remboursement."
-                )
-            if not self.prestataire.est_actif:
-                self.statut = StatutPrescription.EN_CONTROLE
-                self.motif_signalement = (self.motif_signalement + " " if self.motif_signalement else "") + (
-                    "Prestataire suspendu : non éligible au remboursement."
-                )
+                self.motif_signalement = (self.motif_signalement + " " if self.motif_signalement else "") + motif
 
         super().save(*args, **kwargs)
 
