@@ -251,7 +251,8 @@ class ListesTest(BaseBackoffice):
         """Agent sans ayant droit : la tranche « sans conjoint, sans enfant »."""
         reponse = self.client.get(reverse("backoffice:agents"))
 
-        self.assertContains(reponse, f"{self.agent.quota_effectif} KMF")
+        enveloppe = f"{self.agent.quota_effectif:,}".replace(",", "\u202f")
+        self.assertContains(reponse, f"{enveloppe}\u00a0KMF")
         self.assertContains(reponse, self.agent.matricule)
 
     def test_la_recherche_filtre_les_resultats(self):

@@ -100,6 +100,9 @@ class ListeBase(AccesBackoffice, ListView):
     url_import = ""
     libelle_creation = ""
     champs_recherche = ()
+    # Tableau resserré (marges réduites, retour à la ligne permis) pour les
+    # listes trop larges pour tenir dans la fenêtre sans défilement.
+    tableau_compact = False
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -122,6 +125,7 @@ class ListeBase(AccesBackoffice, ListView):
         contexte["url_export"] = reverse(self.url_export) if self.url_export else ""
         contexte["url_import"] = reverse(self.url_import) if self.url_import else ""
         contexte["libelle_creation"] = self.libelle_creation
+        contexte["tableau_compact"] = self.tableau_compact
         contexte["recherche"] = self.request.GET.get("recherche", "")
         contexte["avec_recherche"] = bool(self.champs_recherche)
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
@@ -453,6 +457,11 @@ class MaPrescriptionCreer(AccesAgent, CreateView):
 # --- Agents ---------------------------------------------------------------
 
 
+def _kmf(montant):
+    """Montant lisible et insécable dans un tableau : « 120 000 KMF »."""
+    return f"{montant:,} KMF".replace(",", "\u202f").replace(" KMF", "\u00a0KMF")
+
+
 class AgentListe(ListeBase):
     model = Agent
     titre = "Agents"
@@ -460,14 +469,16 @@ class AgentListe(ListeBase):
     libelle_creation = "Nouvel agent"
     url_detail = "backoffice:agent_detail"
     champs_recherche = ("utilisateur__matricule", "utilisateur__nom", "utilisateur__prenom", "site")
+    tableau_compact = True
+    # Le détail (quota mensuel, consommation, décomposition de la cotisation)
+    # reste sur la fiche : la liste se limite à ce qui tient sur une ligne.
     colonnes = (
         ("Matricule", "matricule"),
         ("Nom", lambda o: o.utilisateur.get_full_name()),
         ("Site", "site"),
-        ("Quota du cycle", lambda o: f"{o.quota_effectif} KMF ({o.quota_mensuel}/mois)"),
-        ("Famille", lambda o: f"{o.nombre_conjoints} conj. · {o.nombre_enfants} enf."),
-        ("Cotisation", lambda o: f"{o.cotisation_mensuelle} KMF"),
-        ("Solde du cycle", lambda o: f"{o.solde_quota()} KMF"),
+        ("Famille", lambda o: f"{o.nombre_conjoints}\u00a0conj.\u00a0·\u00a0{o.nombre_enfants}\u00a0enf."),
+        ("Cotisation / mois", lambda o: _kmf(o.cotisation_mensuelle)),
+        ("Solde / enveloppe", lambda o: f"{_kmf(o.solde_quota())} / {_kmf(o.quota_effectif)}"),
         ("Statut", "libelle_statut"),
     )
 
