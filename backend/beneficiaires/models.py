@@ -55,7 +55,10 @@ class Agent(models.Model):
         null=True,
         blank=True,
         verbose_name="Date de sortie",
-        help_text="Dernier jour couvert : les soins datés après ne sont plus remboursés, pour lui comme pour ses ayants droit.",
+        help_text=(
+            "Dernier jour couvert : les soins datés après ne sont plus remboursés, pour lui comme pour "
+            "ses ayants droit. Effacée automatiquement si l'agent est réintégré."
+        ),
     )
     motif_sortie = models.CharField(max_length=255, blank=True, verbose_name="Motif de sortie")
 
@@ -84,6 +87,11 @@ class Agent(models.Model):
         return self.utilisateur.matricule
 
     def clean(self):
+        # Réintégration : recocher « Membre » suffit, la sortie précédente
+        # ne doit plus produire d'effet.
+        if self.actif:
+            self.date_sortie = None
+            self.motif_sortie = ""
         erreurs = {}
         if not self.actif and not self.date_sortie:
             erreurs["date_sortie"] = "Indiquez la date de sortie de l'agent qui quitte la mutuelle."
@@ -109,7 +117,7 @@ class Agent(models.Model):
 
     @property
     def est_sorti(self):
-        return not self.actif or bool(self.date_sortie and self.date_sortie < timezone.localdate())
+        return not self.actif
 
     @property
     def libelle_statut(self):
@@ -119,10 +127,18 @@ class Agent(models.Model):
             return "Suspendu"
         return "Actif"
 
-    def message_blocage_suspension(self, jour):
+    def message_blocage_soumission(self, jour):
         """Message opposé à toute nouvelle soumission (mobile, web, saisie
-        RH) pour un soin daté dans la période de suspension — chaîne vide
-        sinon. Le motif de la suspension n'y figure pas : l'agent le lit."""
+        RH) — chaîne vide si rien ne s'y oppose. Un agent sorti est bloqué
+        quelle que soit la date du soin, tant qu'il n'est pas réintégré ; un
+        agent suspendu, pour les soins datés dans la période. Le motif n'y
+        figure pas : l'agent lit ce message."""
+        if self.est_sorti:
+            depuis = f" depuis le {self.date_sortie:%d/%m/%Y}" if self.date_sortie else ""
+            return (
+                f"Dossier clôturé{depuis} : l'agent n'est plus membre de la mutuelle, aucune prescription "
+                "ne peut être soumise ni pour lui ni pour ses ayants droit. Rapprochez-vous du service mutuelle."
+            )
         if not self.est_suspendu_le(jour):
             return ""
         fin = f"jusqu'au {self.suspendu_jusqu_au:%d/%m/%Y}" if self.suspendu_jusqu_au else "jusqu'à nouvel ordre"
@@ -136,7 +152,7 @@ class Agent(models.Model):
         """Raison pour laquelle un soin daté de `jour` n'est pas couvert du
         fait de l'agent (sortie ou suspension) — chaîne vide s'il l'est.
         S'applique aussi aux soins de ses ayants droit, rattachés à lui."""
-        if (self.date_sortie and jour > self.date_sortie) or (not self.actif and not self.date_sortie):
+        if not self.actif and (self.date_sortie is None or jour > self.date_sortie):
             sortie = f" le {self.date_sortie:%d/%m/%Y}" if self.date_sortie else ""
             return f"L'agent a quitté la mutuelle{sortie} : non éligible au remboursement."
         if self.est_suspendu_le(jour):

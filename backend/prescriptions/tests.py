@@ -670,3 +670,48 @@ class BlocageAgentSuspenduTest(BasePrescriptions):
         prescription.montant_total = 9000
 
         prescription.clean()  # ne lève pas : le blocage ne vise que la création
+
+
+class BlocageAgentSortiTest(BasePrescriptions):
+    """Un agent sorti de la mutuelle ne peut plus rien soumettre, quelle que
+    soit la date du soin, tant qu'il n'est pas réintégré."""
+
+    def setUp(self):
+        super().setUp()
+        self.agent.actif = False
+        self.agent.date_sortie = date.today() - timedelta(days=30)
+        self.agent.motif_sortie = "Démission"
+        self.agent.save()
+
+    def donnees(self, jour):
+        return {
+            "ayant_droit": "",
+            "prestataire": self.prestataire.pk,
+            "nature": NatureSoin.objects.get(libelle="Consultation").pk,
+            "montant_total": "10000",
+            "date_emission": jour.isoformat(),
+        }
+
+    def test_l_agent_sorti_est_bloque_meme_pour_un_soin_anterieur_a_sa_sortie(self):
+        self.client.force_login(self.agent.utilisateur)
+
+        reponse = self.client.post(
+            "/backoffice/mon-tableau-de-bord/prescription/", self.donnees(date.today() - timedelta(days=60))
+        )
+
+        self.assertContains(reponse, "Dossier clôturé depuis le")
+        self.assertNotContains(reponse, "Démission")
+        self.assertEqual(Prescription.objects.count(), 0)
+
+    def test_la_reintegration_leve_le_blocage_et_efface_la_sortie(self):
+        self.agent.actif = True
+        self.agent.full_clean()
+        self.agent.save()
+
+        self.assertIsNone(self.agent.date_sortie)
+        self.assertEqual(self.agent.motif_sortie, "")
+        self.assertEqual(self.agent.message_blocage_soumission(date.today()), "")
+
+        self.client.force_login(self.agent.utilisateur)
+        self.client.post("/backoffice/mon-tableau-de-bord/prescription/", self.donnees(date.today()))
+        self.assertEqual(Prescription.objects.get().montant_rembourse, 8000)

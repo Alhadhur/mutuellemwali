@@ -77,3 +77,14 @@ class SoumettrePrescriptionTest(TestCase):
         reponse = self.client.post("/api/prescriptions/", self._donnees(), format="multipart")
 
         self.assertEqual(reponse.status_code, 201)
+
+    def test_un_agent_sorti_est_bloque_des_la_soumission(self):
+        self.agent.actif = False
+        self.agent.date_sortie = date(2026, 12, 31)
+        self.agent.save()
+
+        reponse = self.client.post("/api/prescriptions/", self._donnees(), format="multipart")
+
+        self.assertEqual(reponse.status_code, 400)
+        self.assertIn("Dossier clôturé", " ".join(reponse.data["non_field_errors"]))
+        self.assertEqual(Prescription.objects.count(), 0)

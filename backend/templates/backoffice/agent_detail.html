@@ -14,7 +14,8 @@
 {% if agent.est_sorti %}
   <div class="message error">
     <strong>Agent sorti de la mutuelle</strong>{% if agent.date_sortie %} le {{ agent.date_sortie|date:"d/m/Y" }}{% endif %}{% if agent.motif_sortie %} — {{ agent.motif_sortie }}{% endif %}.
-    Les soins datés après la sortie ne sont plus remboursés, pour lui comme pour ses ayants droit.
+    Aucune prescription ne peut plus être soumise, pour lui comme pour ses ayants droit, tant qu'il n'est
+    pas réintégré (recocher « Membre de la mutuelle »).
   </div>
 {% elif agent.suspendu_du %}
   {% if agent.est_suspendu %}
