@@ -2000,7 +2000,8 @@ class RapportsExport(AccesBackoffice, View):
             ["Actes enregistrés", synthese["nombre_actes"]],
             ["Agents ayant consommé", synthese["nombre_agents_consommateurs"]],
             ["Coût total des soins (KMF)", synthese["cout_total_soins"]],
-            ["Part mutuelle (KMF)", synthese["part_mutuelle"]],
+            ["Part mutuelle validée (KMF)", synthese["part_mutuelle"]],
+            ["Part mutuelle en attente, estimation (KMF)", synthese["part_mutuelle_en_attente"]],
             ["Part agents (KMF)", synthese["part_agents"]],
             ["Panier moyen (KMF)", synthese["panier_moyen"]],
         )

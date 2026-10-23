@@ -11,7 +11,7 @@ l'écran et l'export CSV lisent la même fonction.
 from collections import Counter
 from datetime import date, timedelta
 
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from beneficiaires.models import Agent
@@ -51,6 +51,14 @@ def activite_globale(debut, fin):
     part_mutuelle = validees.aggregate(total=Sum("montant_rembourse"))["total"] or 0
     cout_valide = validees.aggregate(total=Sum("montant_total"))["total"] or 0
     nombre = toutes.count()
+    # Estimation : calculée à la saisie, elle peut encore baisser si un
+    # dossier en attente est rejeté ou corrigé.
+    part_mutuelle_en_attente = (
+        toutes.filter(statut__in=(StatutPrescription.SOUMISE, StatutPrescription.EN_CONTROLE)).aggregate(
+            total=Sum("montant_rembourse")
+        )["total"]
+        or 0
+    )
 
     return {
         "nombre_actes": nombre,
@@ -58,6 +66,7 @@ def activite_globale(debut, fin):
         "nombre_agents_actifs": Agent.objects.filter(actif=True).count(),
         "cout_total_soins": cout_total,
         "part_mutuelle": part_mutuelle,
+        "part_mutuelle_en_attente": part_mutuelle_en_attente,
         # Ce que les agents ont réglé au guichet sur les dossiers validés.
         "part_agents": max(0, cout_valide - part_mutuelle),
         "panier_moyen": round(cout_total / nombre) if nombre else 0,
@@ -148,6 +157,42 @@ def consommation_par_prestataire(debut, fin):
         }
         for ligne in lignes
     ]
+
+
+def montants_dus_par_prestataire(debut, fin):
+    """Part mutuelle due à chaque prestataire sur la période, en séparant ce
+    qui est acquis (validé) de ce qui est encore une estimation (soumis ou en
+    contrôle, montant calculé à la saisie et susceptible d'être rejeté ou
+    corrigé). Les rejets ne sont pas dus et sont écartés. Les totaux sont
+    dans la synthèse (voir activite_globale)."""
+    en_attente = Q(statut__in=(StatutPrescription.SOUMISE, StatutPrescription.EN_CONTROLE))
+    valide = Q(statut=StatutPrescription.VALIDEE)
+    lignes = (
+        _prescriptions(debut, fin)
+        .exclude(statut=StatutPrescription.REJETEE)
+        .values("prestataire__code", "prestataire__nom")
+        .annotate(
+            actes_valides=Count("id", filter=valide),
+            du_valide=Sum("montant_rembourse", filter=valide),
+            actes_en_attente=Count("id", filter=en_attente),
+            du_en_attente=Sum("montant_rembourse", filter=en_attente),
+        )
+    )
+    resultats = [
+        {
+            "code": ligne["prestataire__code"],
+            "prestataire": ligne["prestataire__nom"],
+            "actes_valides": ligne["actes_valides"],
+            "du_valide": ligne["du_valide"] or 0,
+            "actes_en_attente": ligne["actes_en_attente"],
+            "du_en_attente": ligne["du_en_attente"] or 0,
+        }
+        for ligne in lignes
+    ]
+    for ligne in resultats:
+        ligne["du_estime"] = ligne["du_valide"] + ligne["du_en_attente"]
+    resultats.sort(key=lambda ligne: -ligne["du_estime"])
+    return resultats
 
 
 def consommation_par_nature(debut, fin):

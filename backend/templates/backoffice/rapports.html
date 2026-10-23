@@ -38,6 +38,9 @@
   <div class="kpi">
     <div class="value">{{ synthese.part_mutuelle }}</div>
     <div class="label">Part mutuelle (dossiers validés)</div>
+    {% if synthese.part_mutuelle_en_attente %}
+      <div class="label">+ <strong>{{ synthese.part_mutuelle_en_attente }}</strong> en attente (estimation)</div>
+    {% endif %}
   </div>
   <div class="kpi">
     <div class="value">{{ synthese.part_agents }}</div>

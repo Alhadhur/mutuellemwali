@@ -258,6 +258,25 @@ RAPPORTS: tuple[Tableau, ...] = (
         ),
     ),
     Tableau(
+        cle="montants_dus",
+        titre="Montants dus aux prestataires",
+        description=(
+            "Part mutuelle à régler à chaque prestataire. « Validé » est acquis ; "
+            "« En attente » (soumis ou en contrôle) est une estimation calculée à la "
+            "saisie, qui peut encore baisser si une prescription est rejetée ou "
+            "corrigée. Les prescriptions rejetées ne sont pas comptées."
+        ),
+        source=rapports.montants_dus_par_prestataire,
+        colonnes=(
+            ("Prestataire", "prestataire"),
+            ("Actes validés", "actes_valides"),
+            ("Dû validé", "du_valide"),
+            ("Actes en attente", "actes_en_attente"),
+            ("Dû en attente", "du_en_attente"),
+            ("Total estimé", "du_estime"),
+        ),
+    ),
+    Tableau(
         cle="regions",
         titre="Consommation par région et par site",
         description="Où se consomme la couverture, et par combien d'agents.",

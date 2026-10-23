@@ -287,3 +287,43 @@ class FrequenceEcranLimiteeTest(BaseRapports):
         lignes = list(csv.reader(io.StringIO(reponse.content.decode("utf-8-sig")), delimiter=";"))
         matricules_exportes = {l[0] for l in lignes if l and l[0] in self.matricules}
         self.assertEqual(matricules_exportes, set(self.matricules))
+
+
+class MontantsDusTest(BaseRapports):
+    """Part mutuelle (taux 80 %) due à chaque prestataire, validé et en
+    attente séparés, rejets écartés."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.prescription(self.agent, 10000, statut=StatutPrescription.VALIDEE)  # 8 000 validés
+        self.prescription(self.autre_agent, 5000)  # 4 000 en attente (soumise)
+        self.prescription(self.agent, 2500, jours=10, statut=StatutPrescription.EN_CONTROLE)  # 2 000 en attente
+        self.prescription(self.agent, 50000, jours=20, statut=StatutPrescription.REJETEE)  # écarté
+        self.prescription(self.agent, 20000, prestataire=self.clinique, statut=StatutPrescription.VALIDEE)
+
+    def test_valide_et_en_attente_sont_separes_et_les_rejets_ecartes(self):
+        lignes = services.montants_dus_par_prestataire(*self.periode())
+        pharmacie = next(ligne for ligne in lignes if ligne["prestataire"] == "Pharmacie Centrale")
+
+        self.assertEqual(pharmacie["actes_valides"], 1)
+        self.assertEqual(pharmacie["du_valide"], 8000)
+        self.assertEqual(pharmacie["actes_en_attente"], 2)
+        self.assertEqual(pharmacie["du_en_attente"], 6000)
+        self.assertEqual(pharmacie["du_estime"], 14000)
+
+    def test_le_tableau_est_trie_par_montant_du(self):
+        lignes = services.montants_dus_par_prestataire(*self.periode())
+
+        self.assertEqual([ligne["prestataire"] for ligne in lignes], ["Clinique El Maarouf", "Pharmacie Centrale"])
+
+    def test_la_synthese_donne_le_total_en_attente(self):
+        synthese = services.activite_globale(*self.periode())
+
+        self.assertEqual(synthese["part_mutuelle"], 24000)
+        self.assertEqual(synthese["part_mutuelle_en_attente"], 6000)
+
+    def test_le_tableau_apparait_sur_la_page_des_rapports(self):
+        reponse = self.client.get(reverse("backoffice:rapports"))
+
+        self.assertContains(reponse, "Montants dus aux prestataires")
