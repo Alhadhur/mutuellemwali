@@ -16,6 +16,7 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.html import format_html
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from accounts.models import Role, Utilisateur
@@ -796,22 +797,38 @@ class PrescriptionListe(ListeBase):
     url_import = "backoffice:prescription_import"
     url_export = "backoffice:prescription_export"
     champs_recherche = ("numero_ordonnance", "agent__utilisateur__matricule", "prestataire__nom")
+    tableau_compact = True
+    # Colonnes regroupées deux à deux pour tenir dans la fenêtre — l'info
+    # principale, puis le détail en gris dessous ; le détail complet reste
+    # sur la fiche et dans l'export.
     colonnes = (
-        ("N° ordonnance", "numero_ordonnance"),
-        ("Agent", lambda o: f"{o.agent.matricule} — {o.agent.utilisateur.get_full_name()}"),
+        ("N° ordonnance", lambda o: format_html('<span class="insecable">{}</span>', o.numero_ordonnance)),
+        ("Date", lambda o: f"{o.date_emission:%d/%m/%Y}"),
         (
-            "Ayant droit",
-            lambda o: (
-                f"{o.ayant_droit.prenom} {o.ayant_droit.nom} ({o.ayant_droit.get_lien_parente_display()})"
+            "Agent / bénéficiaire",
+            lambda o: format_html(
+                '{} — {}<span class="sous-ligne">{}</span>',
+                o.agent.matricule,
+                o.agent.utilisateur.get_full_name(),
+                f"pour {o.ayant_droit.prenom} {o.ayant_droit.nom} ({o.ayant_droit.get_lien_parente_display().lower()})"
                 if o.ayant_droit_id
-                else "—"
+                else "pour lui-même",
             ),
         ),
-        ("Prestataire", lambda o: o.prestataire.nom),
-        ("Nature", lambda o: o.nature.libelle if o.nature_id else "—"),
-        ("Montant", lambda o: f"{o.montant_total} KMF"),
-        ("Remboursé", lambda o: f"{o.montant_rembourse} KMF"),
-        ("Date", "date_emission"),
+        (
+            "Prestataire / nature",
+            lambda o: format_html(
+                '{}<span class="sous-ligne">{}</span>', o.prestataire.nom, o.nature.libelle if o.nature_id else "—"
+            ),
+        ),
+        (
+            "Montant",
+            lambda o: format_html(
+                '{}<span class="sous-ligne">remb. {}</span>',
+                _kmf(o.montant_total),
+                _kmf(o.montant_rembourse),
+            ),
+        ),
         ("Statut", "get_statut_display"),
     )
 

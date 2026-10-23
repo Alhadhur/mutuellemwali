@@ -365,7 +365,7 @@ class ListesTest(BaseBackoffice):
         reponse = self.client.get(reverse("backoffice:prescriptions"))
 
         self.assertContains(reponse, self.agent.matricule)
-        self.assertContains(reponse, "Fils Zahra (Enfant)")
+        self.assertContains(reponse, "pour Fils Zahra (enfant)")
 
     def test_la_fiche_prescription_affiche_l_ayant_droit_en_plus_de_l_agent(self):
         ayant_droit = AyantDroit.objects.create(
