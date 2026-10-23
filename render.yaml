@@ -22,6 +22,10 @@ services:
     # évite la mise en veille au bout de 15 minutes d'inactivité.
     plan: starter
     branch: main
+    # Déploiement seulement quand la vérification GitHub (tests, migrations,
+    # voir .github/workflows/tests.yml) est passée : un envoi qui casse les
+    # tests reste sur GitHub et n'atteint pas la production.
+    autoDeployTrigger: checksPass
     rootDir: backend
     buildCommand: "./build.sh"
     startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60"

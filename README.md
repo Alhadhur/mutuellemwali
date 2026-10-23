@@ -427,6 +427,32 @@ flutter build apk --release \
   la durée de conservation et les accès relèvent d'une décision de la mutuelle,
   pas d'un réglage technique.
 
+### Vérification automatique avant déploiement
+
+Chaque envoi sur `main` lance la vérification GitHub
+(`.github/workflows/tests.yml`) : configuration Django, migrations à jour, et
+toute la suite de tests sur PostgreSQL. Render ne déploie qu'une fois cette
+vérification réussie (`autoDeployTrigger: checksPass` dans `render.yaml`) ; en
+cas d'échec, la version en ligne reste la précédente. Le résultat se lit dans
+l'onglet « Actions » du dépôt GitHub.
+
+### Sauvegardes de la base
+
+Render garde quelques jours d'historique de la base (récupération à un
+instant donné, tableau de bord → base → *Recovery*). Pour une copie conservée
+hors de Render, depuis la racine du dépôt :
+
+```bash
+# URL : tableau de bord Render → mutuelle-sante-db → Connect → External Database URL
+PROD_DATABASE_URL='postgresql://…' ./scripts/sauvegarder_production.sh
+
+# Preuve que la sauvegarde se restaure (base Docker jetable, rien d'autre n'est touché)
+./scripts/tester_restauration.sh sauvegardes/production_AAAAMMJJ_HHMMSS.dump
+```
+
+Le fichier produit contient toutes les données nominatives : il reste dans
+`sauvegardes/` (exclu du dépôt), lisible par le seul compte courant.
+
 ## 4. Prochaines étapes (suite du cahier des charges)
 
 - **Phase 2** : peupler le réseau de pharmacies/établissements réels,

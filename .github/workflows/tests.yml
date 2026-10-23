@@ -1,0 +1,77 @@
+# Vérification automatique à chaque envoi sur main (et à chaque pull request).
+#
+# Render ne déploie qu'une fois cette vérification réussie (voir
+# `autoDeployTrigger: checksPass` dans render.yaml) : une régression détectée
+# par les tests n'atteint donc jamais la production.
+#
+# Les tests tournent sur PostgreSQL, comme en production, et non sur SQLite :
+# certaines différences de comportement (tri, comparaison de textes, types)
+# ne se voient que sur le vrai moteur.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: mutuelle_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      # Valeurs de test uniquement : aucune donnée réelle, aucun secret.
+      SECRET_KEY: cle-de-test-uniquement-pour-la-ci
+      DEBUG: "True"
+      DATABASE_URL: postgres://postgres:ci@localhost:5432/mutuelle_ci
+      DB_SSL_REQUIRE: "False"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.7"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # mysqlclient (poste de développement) se compile à l'installation.
+      - name: Bibliothèques système
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends default-libmysqlclient-dev pkg-config
+
+      - name: Dépendances
+        run: pip install -r requirements.txt
+
+      - name: Configuration Django
+        run: python manage.py check
+
+      # Une modification de modèle sans sa migration casserait le déploiement.
+      - name: Migrations à jour
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        run: python manage.py test --parallel 4
