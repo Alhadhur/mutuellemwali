@@ -17,6 +17,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from accounts.models import Role, Utilisateur
@@ -26,7 +27,7 @@ from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import STATUTS_MANUELS, Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TarifPrestataire
 
-from . import exports, forms, imports, tableaux
+from . import affichage, exports, forms, imports, tableaux
 
 
 def valeur(objet, source):
@@ -104,6 +105,12 @@ class ListeBase(AccesBackoffice, ListView):
     # Tableau resserré (marges réduites, retour à la ligne permis) pour les
     # listes trop larges pour tenir dans la fenêtre sans défilement.
     tableau_compact = False
+    # Action groupée sur les lignes cochées : (nom d'URL, libellé du bouton,
+    # aide affichée à côté). Réservée à ceux qui peuvent modifier.
+    action_groupee = None
+
+    def est_selectionnable(self, objet):
+        return False
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -119,6 +126,7 @@ class ListeBase(AccesBackoffice, ListView):
                 "objet": objet,
                 "cellules": [valeur(objet, source) for _, source in self.colonnes],
                 "url": reverse(self.url_detail, args=[objet.pk]) if self.url_detail else "",
+                "selectionnable": self.est_selectionnable(objet),
             }
             for objet in contexte["object_list"]
         ]
@@ -127,9 +135,13 @@ class ListeBase(AccesBackoffice, ListView):
         contexte["url_import"] = reverse(self.url_import) if self.url_import else ""
         contexte["libelle_creation"] = self.libelle_creation
         contexte["tableau_compact"] = self.tableau_compact
+        peut_modifier = self.request.user.role == Role.RH or self.request.user.is_superuser
+        if self.action_groupee and peut_modifier:
+            nom_url, libelle, aide = self.action_groupee
+            contexte["action_groupee"] = {"url": reverse(nom_url), "libelle": libelle, "aide": aide}
         contexte["recherche"] = self.request.GET.get("recherche", "")
         contexte["avec_recherche"] = bool(self.champs_recherche)
-        contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        contexte["peut_modifier"] = peut_modifier
         # Reste des filtres (hors pagination), pour que « page suivante » ne
         # perde pas ce que la barre de filtres avait posé.
         parametres = self.request.GET.copy()
@@ -458,11 +470,6 @@ class MaPrescriptionCreer(AccesAgent, CreateView):
 # --- Agents ---------------------------------------------------------------
 
 
-def _kmf(montant):
-    """Montant lisible et insécable dans un tableau : « 120 000 KMF »."""
-    return f"{montant:,} KMF".replace(",", "\u202f").replace(" KMF", "\u00a0KMF")
-
-
 class AgentListe(ListeBase):
     model = Agent
     titre = "Agents"
@@ -478,9 +485,9 @@ class AgentListe(ListeBase):
         ("Nom", lambda o: o.utilisateur.get_full_name()),
         ("Site", "site"),
         ("Famille", lambda o: f"{o.nombre_conjoints}\u00a0conj.\u00a0·\u00a0{o.nombre_enfants}\u00a0enf."),
-        ("Cotisation / mois", lambda o: _kmf(o.cotisation_mensuelle)),
-        ("Solde / enveloppe", lambda o: f"{_kmf(o.solde_quota())} / {_kmf(o.quota_effectif)}"),
-        ("Statut", "libelle_statut"),
+        ("Cotisation / mois", lambda o: affichage.kmf(o.cotisation_mensuelle)),
+        ("Solde / enveloppe", lambda o: f"{affichage.kmf(o.solde_quota())} / {affichage.kmf(o.quota_effectif)}"),
+        ("Statut", affichage.badge_statut),
     )
 
     def get_queryset(self):
@@ -532,7 +539,7 @@ class AyantDroitListe(ListeBase):
         ("Agent", lambda o: o.agent.matricule),
         ("Lien", "get_lien_parente_display"),
         ("Âge", lambda o: "—" if o.age is None else f"{o.age} ans"),
-        ("Statut", "get_statut_verification_display"),
+        ("Statut", affichage.badge_statut),
         (
             "Alertes",
             lambda o: " ".join(
@@ -798,6 +805,15 @@ class PrescriptionListe(ListeBase):
     url_export = "backoffice:prescription_export"
     champs_recherche = ("numero_ordonnance", "agent__utilisateur__matricule", "prestataire__nom")
     tableau_compact = True
+    action_groupee = (
+        "backoffice:prescriptions_valider_selection",
+        "Valider la sélection",
+        "Seules les prescriptions « Soumise » se valident en groupe : celles « En contrôle » "
+        "portent une alerte (doublon, couverture…) et se traitent une par une.",
+    )
+
+    def est_selectionnable(self, objet):
+        return objet.statut == StatutPrescription.SOUMISE
     # Colonnes regroupées deux à deux pour tenir dans la fenêtre — l'info
     # principale, puis le détail en gris dessous ; le détail complet reste
     # sur la fiche et dans l'export.
@@ -824,12 +840,12 @@ class PrescriptionListe(ListeBase):
         (
             "Montant",
             lambda o: format_html(
-                '{}<span class="sous-ligne">remb. {}</span>',
-                _kmf(o.montant_total),
-                _kmf(o.montant_rembourse),
+                '{}<span class="sous-ligne insecable">remb. {}</span>',
+                affichage.kmf(o.montant_total),
+                affichage.kmf(o.montant_rembourse),
             ),
         ),
-        ("Statut", "get_statut_display"),
+        ("Statut", affichage.badge_statut),
     )
 
     def get_queryset(self):
@@ -1117,6 +1133,46 @@ class PrescriptionChangerStatut(AccesModification, View):
         return redirect("backoffice:prescription_detail", pk=pk)
 
 
+class PrescriptionValiderSelection(AccesModification, View):
+    """Validation groupée depuis la liste : même passage par `changer_statut`
+    que la validation unitaire, donc une trace par prescription dans
+    l'historique. Ne touche que les prescriptions encore « Soumise » — une
+    prescription en contrôle porte une alerte qui demande un examen, et une
+    prescription déjà décidée ne doit pas être réécrite par un formulaire
+    resté ouvert."""
+
+    def post(self, request):
+        identifiants = {int(pk) for pk in request.POST.getlist("selection") if pk.isdigit()}
+        commentaire = request.POST.get("commentaire", "").strip() or "Validation groupée."
+
+        with transaction.atomic():
+            a_valider = list(
+                Prescription.objects.select_for_update().filter(
+                    pk__in=identifiants, statut=StatutPrescription.SOUMISE
+                )
+            )
+            for prescription in a_valider:
+                prescription.changer_statut(
+                    StatutPrescription.VALIDEE, utilisateur=request.user, commentaire=commentaire
+                )
+
+        if a_valider:
+            messages.success(request, f"{len(a_valider)} prescription(s) validée(s).")
+        ignorees = len(identifiants) - len(a_valider)
+        if ignorees:
+            messages.error(
+                request,
+                f"{ignorees} prescription(s) non validée(s) : elles n'étaient plus au statut « Soumise ».",
+            )
+        if not identifiants:
+            messages.error(request, "Aucune prescription sélectionnée.")
+
+        retour = request.POST.get("retour", "")
+        if not url_has_allowed_host_and_scheme(retour, allowed_hosts={request.get_host()}):
+            retour = reverse("backoffice:prescriptions")
+        return redirect(retour)
+
+
 # --- Factures prestataires ------------------------------------------------
 
 
@@ -1133,9 +1189,9 @@ class FactureListe(ListeBase):
         ("N° facture", "numero"),
         ("Prestataire", lambda o: o.prestataire.nom),
         ("Période", lambda o: f"{o.get_mois_display()} {o.annee}"),
-        ("Montant annoncé", lambda o: f"{o.montant_total_declare} KMF"),
+        ("Montant annoncé", lambda o: affichage.kmf(o.montant_total_declare)),
         ("Lignes", lambda o: o.lignes.count()),
-        ("Statut", "get_statut_display"),
+        ("Statut", affichage.badge_statut),
     )
 
     def get_queryset(self):
@@ -1459,7 +1515,7 @@ class PrestataireListe(ListeBase):
         ("Type", "get_type_prestataire_display"),
         ("Ville", "ville"),
         ("Taux", lambda o: f"{o.taux_prise_en_charge} %"),
-        ("Statut", "get_statut_display"),
+        ("Statut", affichage.badge_statut),
     )
 
 
@@ -1785,7 +1841,7 @@ class BaremeListe(ListeBase):
         ("Enfants", lambda o: f"{o.enfants_min} et plus" if o.enfants_max is None
                     else (f"{o.enfants_min}" if o.enfants_min == o.enfants_max
                           else f"{o.enfants_min} à {o.enfants_max}")),
-        ("Quota mensuel", lambda o: f"{o.montant} KMF"),
+        ("Quota mensuel", lambda o: affichage.kmf(o.montant)),
     )
 
     def get_context_data(self, **kwargs):

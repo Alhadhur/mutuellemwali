@@ -1,4 +1,5 @@
 {% extends "backoffice/base.html" %}
+{% load affichage %}
 
 {% block titre %}Facture {{ facture.numero }}{% endblock %}
 {% block entete %}Facture {{ facture.numero }} — {{ facture.prestataire.nom }}{% endblock %}
@@ -40,13 +41,13 @@
     <div><span>Prestataire</span><strong>{{ facture.prestataire.code }} — {{ facture.prestataire.nom }}</strong></div>
     <div><span>Période</span><strong>{{ facture.get_mois_display }} {{ facture.annee }}</strong></div>
     <div><span>Reçue le</span><strong>{{ facture.date_reception|date:"d/m/Y" }}</strong></div>
-    <div><span>Total réclamé (annoncé)</span><strong>{{ facture.montant_total_declare }} KMF</strong></div>
-    <div><span>Somme réclamée sur les lignes</span><strong>{{ facture.montant_total_lignes }} KMF</strong></div>
+    <div><span>Total réclamé (annoncé)</span><strong>{{ facture.montant_total_declare|kmf }}</strong></div>
+    <div><span>Somme réclamée sur les lignes</span><strong>{{ facture.montant_total_lignes|kmf }}</strong></div>
     <div>
       <span>Écart</span>
-      <strong {% if facture.ecart_total %}style="color:var(--danger);"{% endif %}>{{ facture.ecart_total }} KMF</strong>
+      <strong {% if facture.ecart_total %}style="color:var(--danger);"{% endif %}>{{ facture.ecart_total|kmf }}</strong>
     </div>
-    <div><span>Statut</span><strong>{{ facture.get_statut_display }}</strong></div>
+    <div><span>Statut</span><strong>{{ facture|badge_statut }}</strong></div>
     {% if facture.validee_par %}
       <div><span>Validée par</span><strong>{{ facture.validee_par }} le {{ facture.date_validation|date:"d/m/Y H:i" }}</strong></div>
     {% endif %}
@@ -73,8 +74,8 @@
           <td>{{ p.agent.matricule }}</td>
           <td>{{ p.beneficiaire }}</td>
           <td>{{ p.date_emission|date:"d/m/Y" }}</td>
-          <td>{{ p.montant_total }} KMF</td>
-          <td>{{ p.get_statut_display }}</td>
+          <td>{{ p.montant_total|kmf }}</td>
+          <td>{{ p|badge_statut }}</td>
           <td style="text-align:right;">
             <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' p.pk %}">Ouvrir</a>
           </td>
@@ -96,15 +97,15 @@
             <td>{{ ligne.matricule }}</td>
             <td>{{ ligne.nom_beneficiaire }}</td>
             <td>{{ ligne.nature|default:"—" }}</td>
-            <td>{{ ligne.montant_soin }} KMF</td>
-            <td>{{ ligne.montant_reclame }} KMF</td>
+            <td>{{ ligne.montant_soin|kmf }}</td>
+            <td>{{ ligne.montant_reclame|kmf }}</td>
             <td>
               {% if ligne.statut == 'CONCORDANTE' %}
                 <span class="badge badge-ok">Concordante</span>
               {% elif ligne.statut == 'ECART_MONTANT' %}
-                <span class="badge badge-warn">Déclaré {{ ligne.prescription.montant_total }} KMF</span>
+                <span class="badge badge-warn">Déclaré {{ ligne.prescription.montant_total|kmf }}</span>
               {% elif ligne.statut == 'ECART_TAUX' %}
-                <span class="badge badge-danger">Taux : {{ ligne.montant_reclame_attendu }} KMF attendus</span>
+                <span class="badge badge-danger">Taux : {{ ligne.montant_reclame_attendu|kmf }} attendus</span>
               {% elif ligne.statut == 'SANS_PRESCRIPTION' %}
                 <span class="badge badge-danger">Aucune prescription</span>
               {% elif ligne.statut == 'AGENT_INCONNU' %}

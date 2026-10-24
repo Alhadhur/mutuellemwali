@@ -38,9 +38,10 @@
   tbody tr:hover { background:#f9fafb; }
   .empty { padding:20px 18px; color:var(--muted); font-size:13.5px; }
 
-  .badge { display:inline-block; padding:2px 9px; border-radius:10px; font-size:11px; font-weight:600; color:#fff; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:10px; font-size:11px; font-weight:600; color:#fff; white-space:nowrap; }
   .badge-danger { background:var(--danger); } .badge-warn { background:var(--warn); }
   .badge-ok { background:var(--ok); } .badge-muted { background:#9ca3af; }
+  .badge-info { background:var(--accent); }
 
   .bar-wrap { display:flex; align-items:center; gap:8px; }
   .bar { height:8px; background:#e5e7eb; border-radius:4px; flex:1; overflow:hidden; }
@@ -178,6 +179,13 @@
   .tableau-compact th, .tableau-compact td { padding:10px 12px; }
   .tableau-compact td:last-child { white-space:nowrap; }
   .insecable { white-space:nowrap; }
+  .barre-groupee { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px 18px;
+                   border-bottom:1px solid var(--border); background:#f9fafb; font-size:13px; }
+  .barre-groupee .controle { width:auto; flex:1 1 220px; max-width:360px; padding:7px 10px; }
+  .barre-groupee .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .aide-groupee { flex-basis:100%; color:var(--muted); font-size:12px; }
+  #compte-selection { font-weight:600; min-width:130px; }
+  th.col-case, td.col-case { width:1%; padding-right:0; }
   .sous-ligne { display:block; color:var(--muted); font-size:12.5px; margin-top:2px; }
 
   .fiche { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 22px; padding:18px; }

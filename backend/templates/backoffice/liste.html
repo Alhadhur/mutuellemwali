@@ -26,10 +26,25 @@
 
 <section>
   {% if lignes %}
+    {% if action_groupee %}
+      <form method="post" action="{{ action_groupee.url }}" id="action-groupee">
+        {% csrf_token %}
+        <input type="hidden" name="retour" value="{{ request.get_full_path }}">
+        <div class="barre-groupee">
+          <span id="compte-selection">Aucune ligne cochée</span>
+          <input type="text" name="commentaire" class="controle" placeholder="Commentaire (facultatif)" maxlength="500">
+          <button class="btn" type="submit" id="bouton-groupe" disabled>{{ action_groupee.libelle }}</button>
+          <span class="aide-groupee">{{ action_groupee.aide }}</span>
+        </div>
+      </form>
+    {% endif %}
     <div class="tableau-defilant{% if tableau_compact %} tableau-compact{% endif %}">
       <table>
         <thead>
           <tr>
+            {% if action_groupee %}
+              <th class="col-case"><input type="checkbox" class="controle-case" id="tout-cocher" title="Tout cocher sur cette page" aria-label="Tout cocher sur cette page"></th>
+            {% endif %}
             {% for entete in entetes %}<th>{{ entete }}</th>{% endfor %}
             <th></th>
           </tr>
@@ -37,6 +52,13 @@
         <tbody>
           {% for ligne in lignes %}
             <tr>
+              {% if action_groupee %}
+                <td class="col-case">
+                  {% if ligne.selectionnable %}
+                    <input type="checkbox" class="controle-case case-ligne" name="selection" value="{{ ligne.objet.pk }}" form="action-groupee" aria-label="Sélectionner">
+                  {% endif %}
+                </td>
+              {% endif %}
               {% for cellule in ligne.cellules %}<td>{{ cellule }}</td>{% endfor %}
               <td style="text-align:right;">
                 {% if ligne.url %}<a class="btn btn-secondaire btn-petit" href="{{ ligne.url }}">Ouvrir</a>{% endif %}
@@ -75,6 +97,33 @@
     formulaire.querySelectorAll('select, input[type="date"]').forEach((champ) => {
       champ.addEventListener('change', () => formulaire.requestSubmit());
     });
+  })();
+  (function () {
+    // Validation groupée : compte des lignes cochées, case « tout cocher »,
+    // et confirmation avant l'envoi.
+    const action = document.getElementById('action-groupee');
+    if (!action) return;
+    const cases = Array.from(document.querySelectorAll('.case-ligne'));
+    const tout = document.getElementById('tout-cocher');
+    const bouton = document.getElementById('bouton-groupe');
+    const compte = document.getElementById('compte-selection');
+    function rafraichir() {
+      const n = cases.filter((c) => c.checked).length;
+      compte.textContent = n ? n + ' ligne' + (n > 1 ? 's' : '') + ' cochée' + (n > 1 ? 's' : '') : 'Aucune ligne cochée';
+      bouton.disabled = n === 0;
+      if (tout) {
+        tout.checked = n > 0 && n === cases.length;
+        tout.indeterminate = n > 0 && n < cases.length;
+        tout.disabled = cases.length === 0;
+      }
+    }
+    cases.forEach((c) => c.addEventListener('change', rafraichir));
+    if (tout) tout.addEventListener('change', () => { cases.forEach((c) => { c.checked = tout.checked; }); rafraichir(); });
+    action.addEventListener('submit', (e) => {
+      const n = cases.filter((c) => c.checked).length;
+      if (!window.confirm(bouton.textContent.trim() + ' : ' + n + ' ligne' + (n > 1 ? 's' : '') + ' ?')) e.preventDefault();
+    });
+    rafraichir();
   })();
   </script>
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "backoffice/base.html" %}
+{% load affichage %}
 {% load humanize %}
 
 {% block titre %}Mon tableau de bord{% endblock %}
@@ -32,7 +33,7 @@
         <td>{{ a.prenom }} {{ a.nom }}</td>
         <td>{{ a.get_lien_parente_display }}</td>
         <td>{% if a.age is not None %}{{ a.age }} ans{% else %}—{% endif %}</td>
-        <td>{{ a.get_statut_verification_display }}</td>
+        <td>{{ a|badge_statut }}</td>
         <td>
           {% if a.est_expire %}<span class="badge badge-danger">Justificatif expiré</span>{% endif %}
           {% if a.limite_age_depassee %}<span class="badge badge-danger">Limite d'âge dépassée</span>{% endif %}
@@ -64,10 +65,10 @@
           {% if p.ayant_droit %}{{ p.ayant_droit.prenom }} {{ p.ayant_droit.nom }} ({{ p.ayant_droit.get_lien_parente_display }}){% else %}Moi-même{% endif %}
         </td>
         <td>{{ p.prestataire.nom }}</td>
-        <td>{{ p.montant_total }} KMF</td>
-        <td>{{ p.montant_rembourse }} KMF</td>
+        <td>{{ p.montant_total|kmf }}</td>
+        <td>{{ p.montant_rembourse|kmf }}</td>
         <td>{{ p.date_emission|date:"d/m/Y" }}</td>
-        <td>{{ p.get_statut_display }}</td>
+        <td>{{ p|badge_statut }}</td>
       </tr>
       {% endfor %}
     </table>

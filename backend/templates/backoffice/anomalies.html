@@ -1,4 +1,5 @@
 {% extends "backoffice/base.html" %}
+{% load affichage %}
 
 {% block titre %}Anomalies{% endblock %}
 {% block entete %}Anomalies{% endblock %}
@@ -42,7 +43,7 @@
           <thead><tr>{% for colonne in tableau.colonnes %}<th>{{ colonne }}</th>{% endfor %}</tr></thead>
           <tbody>
             {% for ligne in tableau.lignes %}
-              <tr>{% for cellule in ligne %}<td>{{ cellule }}</td>{% endfor %}</tr>
+              <tr>{% for cellule in ligne %}<td>{{ cellule|milliers }}</td>{% endfor %}</tr>
             {% endfor %}
           </tbody>
         </table>

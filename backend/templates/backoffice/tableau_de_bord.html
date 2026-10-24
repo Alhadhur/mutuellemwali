@@ -1,4 +1,5 @@
 {% extends "backoffice/base.html" %}
+{% load affichage %}
 {% load humanize %}
 
 {% block titre %}Tableau de bord{% endblock %}
@@ -95,9 +96,9 @@
       {% for r in agents_proche_quota %}
       <tr>
         <td>{{ r.agent.utilisateur.matricule }} — {{ r.agent.utilisateur.get_full_name }}</td>
-        <td>{{ r.quota }}</td>
-        <td>{{ r.consomme }}</td>
-        <td>{{ r.solde }} ({{ r.pourcentage_restant }}%)</td>
+        <td>{{ r.quota|milliers }}</td>
+        <td>{{ r.consomme|milliers }}</td>
+        <td>{{ r.solde|milliers }} ({{ r.pourcentage_restant }}%)</td>
         <td class="bar-wrap" style="width:120px;"><span class="bar"><span style="width:{{ r.pourcentage_restant }}%;background:var(--danger);"></span></span></td>
       </tr>
       {% endfor %}
@@ -115,9 +116,9 @@
       {% for r in agents_depasse_quota %}
       <tr>
         <td>{{ r.agent.utilisateur.matricule }} — {{ r.agent.utilisateur.get_full_name }}</td>
-        <td>{{ r.quota }}</td>
-        <td>{{ r.consomme }}</td>
-        <td><span class="badge badge-danger">+{{ r.depassement }} KMF</span></td>
+        <td>{{ r.quota|milliers }}</td>
+        <td>{{ r.consomme|milliers }}</td>
+        <td><span class="badge badge-danger">+{{ r.depassement|kmf }}</span></td>
       </tr>
       {% endfor %}
     </table>

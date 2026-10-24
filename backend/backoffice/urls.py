@@ -35,6 +35,11 @@ urlpatterns = [
     path("prescriptions/", views.PrescriptionListe.as_view(), name="prescriptions"),
     path("prescriptions/export/", views.PrescriptionExport.as_view(), name="prescription_export"),
     path("prescriptions/nouvelle/", views.PrescriptionCreer.as_view(), name="prescription_creer"),
+    path(
+        "prescriptions/valider-selection/",
+        views.PrescriptionValiderSelection.as_view(),
+        name="prescriptions_valider_selection",
+    ),
     path("recherche/agents/", views.RechercheAgents.as_view(), name="recherche_agents"),
     path("recherche/agents/<int:pk>/ayants-droit/", views.AyantsDroitDeLAgent.as_view(), name="recherche_ayants_droit"),
     path(

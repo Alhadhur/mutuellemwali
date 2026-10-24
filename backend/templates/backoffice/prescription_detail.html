@@ -1,4 +1,5 @@
 {% extends "backoffice/base.html" %}
+{% load affichage %}
 
 {% block titre %}{{ prescription.numero_ordonnance }}{% endblock %}
 {% block entete %}Prescription {{ prescription.numero_ordonnance }}{% endblock %}
@@ -31,11 +32,11 @@
     </div>
     <div><span>Prestataire</span><strong>{{ prescription.prestataire.nom }}</strong></div>
     <div><span>Nature du soin</span><strong>{{ prescription.nature.libelle|default:"—" }}</strong></div>
-    <div><span>Montant total</span><strong>{{ prescription.montant_total }} KMF</strong></div>
-    <div><span>Montant remboursé</span><strong>{{ prescription.montant_rembourse }} KMF</strong></div>
+    <div><span>Montant total</span><strong>{{ prescription.montant_total|kmf }}</strong></div>
+    <div><span>Montant remboursé</span><strong>{{ prescription.montant_rembourse|kmf }}</strong></div>
     <div><span>Date d'émission</span><strong>{{ prescription.date_emission|date:"d/m/Y" }}</strong></div>
     <div><span>Soumise le</span><strong>{{ prescription.date_creation|date:"d/m/Y H:i" }}</strong></div>
-    <div><span>Statut</span><strong>{{ prescription.get_statut_display }}</strong></div>
+    <div><span>Statut</span><strong>{{ prescription|badge_statut }}</strong></div>
   </div>
   {% if motif_actif and prescription.motif_signalement %}
     <div style="padding:0 18px 18px;">
@@ -60,9 +61,9 @@
         <tr>
           <td>{{ d.numero_ordonnance }}</td>
           <td>{{ d.prestataire.nom }}</td>
-          <td>{{ d.montant_total }} KMF</td>
+          <td>{{ d.montant_total|kmf }}</td>
           <td>{{ d.date_emission|date:"d/m/Y" }}</td>
-          <td>{{ d.get_statut_display }}</td>
+          <td>{{ d|badge_statut }}</td>
           <td style="text-align:right;">
             <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' d.pk %}">Ouvrir</a>
           </td>

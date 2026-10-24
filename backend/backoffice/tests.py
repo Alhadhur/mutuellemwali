@@ -1089,7 +1089,7 @@ class FactureLigneAjouterTest(BaseBackoffice):
         reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
 
         self.assertContains(reponse, "Fatima Zahra")
-        self.assertContains(reponse, "10000")
+        self.assertContains(reponse, "10\u202f000\u00a0KMF")
 
     def test_le_formulaire_propose_la_recherche_d_agent(self):
         reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
@@ -1637,3 +1637,91 @@ class AgentStatutCouvertureTest(BaseBackoffice):
         self.assertContains(reponse, "Indiquez la date de sortie")
         self.agent.refresh_from_db()
         self.assertTrue(self.agent.actif)
+
+
+class ValidationGroupeeTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.autre = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            montant_total=7000,
+            date_emission=date.today() - timedelta(days=20),
+        )
+        self.en_controle = Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            montant_total=3000,
+            date_emission=date.today() - timedelta(days=40),
+        )
+        self.en_controle.changer_statut(StatutPrescription.EN_CONTROLE)
+        self.url = reverse("backoffice:prescriptions_valider_selection")
+
+    def test_les_prescriptions_soumises_cochees_sont_validees_et_tracees(self):
+        reponse = self.client.post(
+            self.url, {"selection": [self.prescription.pk, self.autre.pk], "commentaire": "Lot d'octobre"}
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:prescriptions"))
+        for prescription in (self.prescription, self.autre):
+            prescription.refresh_from_db()
+            self.assertEqual(prescription.statut, StatutPrescription.VALIDEE)
+            trace = prescription.historique.last()
+            self.assertEqual(trace.utilisateur, self.rh)
+            self.assertEqual(trace.commentaire, "Lot d'octobre")
+
+    def test_une_prescription_en_controle_n_est_pas_validee_en_groupe(self):
+        self.client.post(self.url, {"selection": [self.prescription.pk, self.en_controle.pk]})
+
+        self.en_controle.refresh_from_db()
+        self.assertEqual(self.en_controle.statut, StatutPrescription.EN_CONTROLE)
+        self.prescription.refresh_from_db()
+        self.assertEqual(self.prescription.statut, StatutPrescription.VALIDEE)
+
+    def test_le_retour_garde_les_filtres_mais_refuse_un_site_externe(self):
+        retour = reverse("backoffice:prescriptions") + "?statut=SOUMISE"
+        reponse = self.client.post(self.url, {"selection": [self.prescription.pk], "retour": retour})
+        self.assertRedirects(reponse, retour)
+
+        reponse = self.client.post(self.url, {"selection": [self.autre.pk], "retour": "https://exemple.com/"})
+        self.assertRedirects(reponse, reverse("backoffice:prescriptions"))
+
+    def test_la_direction_ne_peut_pas_valider(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.post(self.url, {"selection": [self.prescription.pk]})
+
+        self.assertEqual(reponse.status_code, 403)
+        self.prescription.refresh_from_db()
+        self.assertEqual(self.prescription.statut, StatutPrescription.SOUMISE)
+
+    def test_seules_les_soumises_ont_une_case_a_cocher(self):
+        reponse = self.client.get(reverse("backoffice:prescriptions"))
+
+        self.assertContains(reponse, f'name="selection" value="{self.prescription.pk}"')
+        self.assertNotContains(reponse, f'name="selection" value="{self.en_controle.pk}"')
+        self.assertContains(reponse, "Valider la sélection")
+
+        self.client.force_login(self.direction)
+        self.assertNotContains(self.client.get(reverse("backoffice:prescriptions")), "Valider la sélection")
+
+
+class AffichageTest(BaseBackoffice):
+    def test_les_statuts_s_affichent_en_couleur_et_les_montants_avec_separateur(self):
+        self.client.force_login(self.rh)
+        self.prescription.montant_total = 125000
+        self.prescription.save()
+
+        reponse = self.client.get(reverse("backoffice:prescription_detail", args=[self.prescription.pk]))
+
+        self.assertContains(reponse, '<span class="badge badge-info">Soumise</span>', html=True)
+        self.assertContains(reponse, "125 000 KMF")
+
+    def test_l_export_garde_des_valeurs_brutes(self):
+        self.client.force_login(self.rh)
+
+        contenu = self.client.get(reverse("backoffice:prescription_export")).content.decode("utf-8-sig")
+
+        self.assertNotIn("badge", contenu)
+        self.assertIn("Soumise", contenu)

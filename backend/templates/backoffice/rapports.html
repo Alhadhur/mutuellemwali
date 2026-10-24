@@ -1,4 +1,5 @@
 {% extends "backoffice/base.html" %}
+{% load affichage %}
 
 {% block titre %}Rapports d'activité{% endblock %}
 {% block entete %}Rapports d'activité{% endblock %}
@@ -24,38 +25,38 @@
 
 <div class="kpis">
   <div class="kpi">
-    <div class="value">{{ synthese.nombre_actes }}</div>
+    <div class="value">{{ synthese.nombre_actes|milliers }}</div>
     <div class="label">Actes enregistrés</div>
   </div>
   <div class="kpi">
-    <div class="value">{{ synthese.nombre_agents_consommateurs }} <span class="sur">/ {{ synthese.nombre_agents_actifs }}</span></div>
+    <div class="value">{{ synthese.nombre_agents_consommateurs|milliers }} <span class="sur">/ {{ synthese.nombre_agents_actifs|milliers }}</span></div>
     <div class="label">Agents ayant consommé</div>
   </div>
   <div class="kpi">
-    <div class="value">{{ synthese.cout_total_soins }}</div>
+    <div class="value">{{ synthese.cout_total_soins|milliers }}</div>
     <div class="label">Coût total des soins</div>
   </div>
   <div class="kpi">
-    <div class="value">{{ synthese.part_mutuelle }}</div>
+    <div class="value">{{ synthese.part_mutuelle|milliers }}</div>
     <div class="label">Part mutuelle (dossiers validés)</div>
     {% if synthese.part_mutuelle_en_attente %}
-      <div class="label">+ <strong>{{ synthese.part_mutuelle_en_attente }}</strong> en attente (estimation)</div>
+      <div class="label">+ <strong>{{ synthese.part_mutuelle_en_attente|milliers }}</strong> en attente (estimation)</div>
     {% endif %}
   </div>
   <div class="kpi">
-    <div class="value">{{ synthese.part_agents }}</div>
+    <div class="value">{{ synthese.part_agents|milliers }}</div>
     <div class="label">Part réglée par les agents</div>
   </div>
   <div class="kpi">
-    <div class="value">{{ synthese.panier_moyen }}</div>
+    <div class="value">{{ synthese.panier_moyen|milliers }}</div>
     <div class="label">Panier moyen par acte</div>
   </div>
   <div class="kpi">
-    <div class="value">{{ synthese.nombre_valides }}</div>
+    <div class="value">{{ synthese.nombre_valides|milliers }}</div>
     <div class="label">Dossiers validés</div>
   </div>
   <div class="kpi">
-    <div class="value">{{ synthese.nombre_rejetes }}</div>
+    <div class="value">{{ synthese.nombre_rejetes|milliers }}</div>
     <div class="label">Dossiers rejetés</div>
   </div>
 </div>
@@ -80,7 +81,7 @@
           <thead><tr>{% for colonne in tableau.colonnes %}<th>{{ colonne }}</th>{% endfor %}</tr></thead>
           <tbody>
             {% for ligne in tableau.lignes %}
-              <tr>{% for cellule in ligne %}<td>{{ cellule }}</td>{% endfor %}</tr>
+              <tr>{% for cellule in ligne %}<td>{{ cellule|milliers }}</td>{% endfor %}</tr>
             {% endfor %}
           </tbody>
         </table>
