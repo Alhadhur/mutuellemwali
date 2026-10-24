@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../models/models.dart';
 import '../services/api_service.dart';
+import '../widgets/montant_rembourse.dart';
 import '../widgets/status_badge.dart';
 import 'prescription_form_screen.dart';
 
@@ -109,8 +110,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('Montant : ${_montant.format(p.montantTotal)}', style: const TextStyle(fontSize: 13)),
-                            Text('Remboursé : ${_montant.format(p.montantRembourse)}',
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                            MontantRembourse(montant: p.montantRembourse, rejetee: p.statut == 'REJETEE'),
                           ],
                         ),
                         Text('Émise le ${p.dateEmission}', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
