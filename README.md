@@ -443,8 +443,9 @@ instant donné, tableau de bord → base → *Recovery*). Pour une copie conserv
 hors de Render, depuis la racine du dépôt :
 
 ```bash
-# URL : tableau de bord Render → mutuelle-sante-db → Connect → External Database URL
-PROD_DATABASE_URL='postgresql://…' ./scripts/sauvegarder_production.sh
+# Le script demande l'URL (saisie masquée) : tableau de bord Render →
+# mutuelle-sante-db → Connect → External Database URL
+./scripts/sauvegarder_production.sh
 
 # Preuve que la sauvegarde se restaure (base Docker jetable, rien d'autre n'est touché)
 ./scripts/tester_restauration.sh sauvegardes/production_AAAAMMJJ_HHMMSS.dump

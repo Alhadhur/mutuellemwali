@@ -9,11 +9,11 @@
 #   1. Sur render.com : base « mutuelle-sante-db » → Connect → copier
 #      l'« External Database URL ».
 #   2. Lancer, depuis la racine du dépôt :
-#        PROD_DATABASE_URL='postgresql://…' ./scripts/sauvegarder_production.sh
+#        ./scripts/sauvegarder_production.sh
+#      et coller l'URL quand elle est demandée (saisie masquée).
 #
-# L'URL contient le mot de passe de la base : elle se passe en variable
-# d'environnement, le temps de la commande, et n'est jamais écrite dans un
-# fichier ni dans le dépôt.
+# L'URL contient le mot de passe de la base : elle n'est jamais affichée,
+# ni écrite dans un fichier, l'historique du terminal ou le dépôt.
 #
 # Le fichier produit contient TOUTES les données nominatives et de santé, ainsi
 # que les empreintes de mots de passe : il reste dans `sauvegardes/` (exclu du
@@ -21,8 +21,18 @@
 # e-mail ni le déposer sur un partage non chiffré.
 set -o errexit -o nounset -o pipefail
 
+# Sans variable fournie, le script la demande, en saisie masquée : rien ne
+# s'affiche à l'écran ni ne reste dans l'historique du terminal.
+if [[ -z "${PROD_DATABASE_URL:-}" && -t 0 ]]; then
+  read -rsp "Collez l'External Database URL de Render, puis Entrée : " PROD_DATABASE_URL
+  echo
+fi
 if [[ -z "${PROD_DATABASE_URL:-}" ]]; then
-  echo "PROD_DATABASE_URL absent : voir l'en-tête de ce script." >&2
+  echo "Adresse de la base absente : voir l'en-tête de ce script." >&2
+  exit 1
+fi
+if [[ "$PROD_DATABASE_URL" != postgres* ]]; then
+  echo "Adresse inattendue : elle doit commencer par postgresql:// (External Database URL de Render)." >&2
   exit 1
 fi
 
