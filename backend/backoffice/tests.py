@@ -1725,3 +1725,21 @@ class AffichageTest(BaseBackoffice):
 
         self.assertNotIn("badge", contenu)
         self.assertIn("Soumise", contenu)
+
+
+class MontantRejeteBarreTest(BaseBackoffice):
+    def test_le_montant_rembourse_d_une_prescription_rejetee_est_barre(self):
+        self.client.force_login(self.rh)
+        self.prescription.changer_statut(StatutPrescription.REJETEE)
+
+        for url in (
+            reverse("backoffice:prescriptions"),
+            reverse("backoffice:prescription_detail", args=[self.prescription.pk]),
+            reverse("backoffice:agent_detail", args=[self.agent.pk]),
+        ):
+            self.assertContains(self.client.get(url), '<s class="montant-annule"')
+
+    def test_le_montant_d_une_prescription_soumise_n_est_pas_barre(self):
+        self.client.force_login(self.rh)
+
+        self.assertNotContains(self.client.get(reverse("backoffice:prescriptions")), '<s class="montant-annule"')

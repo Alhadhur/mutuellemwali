@@ -33,7 +33,7 @@
     <div><span>Prestataire</span><strong>{{ prescription.prestataire.nom }}</strong></div>
     <div><span>Nature du soin</span><strong>{{ prescription.nature.libelle|default:"—" }}</strong></div>
     <div><span>Montant total</span><strong>{{ prescription.montant_total|kmf }}</strong></div>
-    <div><span>Montant remboursé</span><strong>{{ prescription.montant_rembourse|kmf }}</strong></div>
+    <div><span>Montant remboursé</span><strong>{{ prescription|montant_rembourse }}</strong></div>
     <div><span>Date d'émission</span><strong>{{ prescription.date_emission|date:"d/m/Y" }}</strong></div>
     <div><span>Soumise le</span><strong>{{ prescription.date_creation|date:"d/m/Y H:i" }}</strong></div>
     <div><span>Statut</span><strong>{{ prescription|badge_statut }}</strong></div>

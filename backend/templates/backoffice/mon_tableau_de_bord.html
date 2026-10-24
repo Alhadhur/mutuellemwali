@@ -66,7 +66,7 @@
         </td>
         <td>{{ p.prestataire.nom }}</td>
         <td>{{ p.montant_total|kmf }}</td>
-        <td>{{ p.montant_rembourse|kmf }}</td>
+        <td>{{ p|montant_rembourse }}</td>
         <td>{{ p.date_emission|date:"d/m/Y" }}</td>
         <td>{{ p|badge_statut }}</td>
       </tr>

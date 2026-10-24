@@ -842,7 +842,7 @@ class PrescriptionListe(ListeBase):
             lambda o: format_html(
                 '{}<span class="sous-ligne insecable">remb. {}</span>',
                 affichage.kmf(o.montant_total),
-                affichage.kmf(o.montant_rembourse),
+                affichage.montant_rembourse(o),
             ),
         ),
         ("Statut", affichage.badge_statut),

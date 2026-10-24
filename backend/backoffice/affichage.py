@@ -69,3 +69,14 @@ def badge_statut(objet):
         if isinstance(objet, modele):
             return badge(objet.get_statut_display(), TONS[modele].get(objet.statut, "muted"))
     raise TypeError(f"Pas de statut affichable pour {type(objet).__name__}")
+
+
+def montant_rembourse(prescription):
+    """Montant remboursé d'une prescription : barré si elle est rejetée.
+    Le montant calculé à la saisie reste en base (il redevient dû si la
+    décision est revue), mais il ne sera pas payé et ne doit pas se lire
+    comme tel."""
+    montant = kmf(prescription.montant_rembourse)
+    if prescription.statut == StatutPrescription.REJETEE:
+        return format_html('<s class="montant-annule" title="Prescription rejetée : non remboursée">{}</s>', montant)
+    return montant
