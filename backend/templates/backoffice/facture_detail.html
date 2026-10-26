@@ -33,6 +33,9 @@
   <div class="kpi"><div class="value" style="color:{% if synthese.ecarts_taux %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.ecarts_taux }}</div><div class="label">Taux mal appliqué</div></div>
   <div class="kpi"><div class="value" style="color:{% if synthese.sans_prescription %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.sans_prescription }}</div><div class="label">Facturées sans prescription</div></div>
   <div class="kpi"><div class="value" style="color:{% if synthese.non_facturees %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.non_facturees }}</div><div class="label">Déclarées non facturées</div></div>
+  {% if synthese.prescriptions_rejetees %}
+    <div class="kpi"><div class="value" style="color:var(--danger);">{{ synthese.prescriptions_rejetees }}</div><div class="label">Facturées alors que rejetées</div></div>
+  {% endif %}
 </div>
 
 <section>
@@ -112,6 +115,8 @@
                 <span class="badge badge-danger">Matricule inconnu</span>
               {% elif ligne.statut == 'NATURE_NON_COUVERTE' %}
                 <span class="badge badge-danger">Nature non couverte</span>
+              {% elif ligne.statut == 'PRESCRIPTION_REJETEE' %}
+                <span class="badge badge-danger" title="La mutuelle a rejeté cette prescription : la valider ou contester la ligne relève d'une décision manuelle.">Prescription rejetée</span>
               {% elif ligne.statut == 'BENEFICIAIRE_DIFFERENT' %}
                 <span class="badge badge-danger">Bénéficiaire : {{ ligne.prescription.nom_beneficiaire }} attendu</span>
               {% else %}

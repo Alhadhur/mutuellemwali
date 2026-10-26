@@ -15,6 +15,7 @@ from datetime import date
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Case, When
 from django.utils import timezone
 
 from prescriptions.models import Prescription, StatutPrescription
@@ -51,6 +52,7 @@ class StatutLigne(models.TextChoices):
     AGENT_INCONNU = "AGENT_INCONNU", "Matricule inconnu"
     NATURE_NON_COUVERTE = "NATURE_NON_COUVERTE", "Nature non couverte par ce prestataire"
     BENEFICIAIRE_DIFFERENT = "BENEFICIAIRE_DIFFERENT", "Bénéficiaire différent de la prescription"
+    PRESCRIPTION_REJETEE = "PRESCRIPTION_REJETEE", "Prescription rejetée par la mutuelle"
 
 
 class Facture(models.Model):
@@ -118,7 +120,13 @@ class Facture(models.Model):
         C'est l'anomalie la plus grave : elle peut révéler une ordonnance
         fabriquée de toutes pièces."""
         rapprochees = self.lignes.exclude(prescription__isnull=True).values_list("prescription_id", flat=True)
-        return self.prescriptions_de_la_periode().exclude(pk__in=rapprochees)
+        # Une prescription rejetée qui n'est pas facturée est dans l'ordre
+        # des choses : elle ne doit pas grossir cette alerte.
+        return (
+            self.prescriptions_de_la_periode()
+            .exclude(pk__in=rapprochees)
+            .exclude(statut=StatutPrescription.REJETEE)
+        )
 
     def rapprocher(self):
         """Confronte chaque ligne aux prescriptions de la période.
@@ -140,6 +148,12 @@ class Facture(models.Model):
                 agent=agent, date_emission=ligne.date_soin
             ).exclude(pk__in=deja_prises)
 
+            # À égalité, une prescription encore en jeu passe avant une
+            # prescription rejetée : la ligne ne doit pas se rattacher au
+            # rejet quand une autre prescription lui correspond.
+            candidates = candidates.order_by(
+                Case(When(statut=StatutPrescription.REJETEE, then=1), default=0), "pk"
+            )
             exacte = candidates.filter(montant_total=ligne.montant_soin).first()
             approchante = exacte or candidates.first()
 
@@ -149,7 +163,11 @@ class Facture(models.Model):
             else:
                 ligne.prescription = None
 
-            if not self.prestataire.propose_nature(ligne.nature):
+            if approchante and approchante.statut == StatutPrescription.REJETEE:
+                # Le prestataire facture un soin que la mutuelle a refusé de
+                # prendre en charge : à arbitrer, jamais à valider d'office.
+                ligne.statut = StatutLigne.PRESCRIPTION_REJETEE
+            elif not self.prestataire.propose_nature(ligne.nature):
                 # Le prestataire a des tarifs détaillés mais aucun ne
                 # correspond à cette nature : il facture un soin qu'il n'est
                 # pas censé proposer — plus grave qu'un simple écart de
@@ -182,6 +200,7 @@ class Facture(models.Model):
             "ecarts_taux": lignes.filter(statut=StatutLigne.ECART_TAUX).count(),
             "sans_prescription": lignes.filter(statut=StatutLigne.SANS_PRESCRIPTION).count(),
             "agents_inconnus": lignes.filter(statut=StatutLigne.AGENT_INCONNU).count(),
+            "prescriptions_rejetees": lignes.filter(statut=StatutLigne.PRESCRIPTION_REJETEE).count(),
             "non_facturees": self.prescriptions_non_facturees().count(),
             "ecart_total": self.ecart_total,
         }
@@ -192,12 +211,17 @@ class Facture(models.Model):
         référence de la facture dans leur historique.
 
         Les lignes en écart ne valident rien : elles restent à arbitrer une
-        par une.
+        par une. Une prescription rejetée n'est jamais revalidée par une
+        facture, même si elle a été rejetée après le rapprochement : le rejet
+        est une décision de la mutuelle, la facture ne la renverse pas.
         """
         validees = 0
         for ligne in self.lignes.filter(statut=StatutLigne.CONCORDANTE).select_related("prescription"):
             prescription = ligne.prescription
-            if prescription and prescription.statut != StatutPrescription.VALIDEE:
+            if prescription and prescription.statut not in (
+                StatutPrescription.VALIDEE,
+                StatutPrescription.REJETEE,
+            ):
                 prescription.changer_statut(
                     StatutPrescription.VALIDEE,
                     utilisateur=utilisateur,

@@ -487,3 +487,68 @@ class ImportFactureTest(BaseFacturation):
                 self.entete() + "05/03/2026;A0001;Fatima Zahra;Consultation;12000\n",
                 prestataire="INEXISTANT",
             )
+
+
+class PrescriptionRejeteeTest(BaseFacturation):
+    """Une facture ne renverse jamais un rejet décidé par la mutuelle."""
+
+    def test_une_ligne_qui_correspond_a_une_prescription_rejetee_est_signalee(self):
+        prescription = self.declarer(date(2026, 3, 5), 12000)
+        prescription.changer_statut(StatutPrescription.REJETEE)
+        facture = self.facture()
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000)
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.statut, StatutLigne.PRESCRIPTION_REJETEE)
+        self.assertEqual(ligne.prescription, prescription)
+        self.assertEqual(facture.synthese()["prescriptions_rejetees"], 1)
+
+    def test_valider_la_facture_ne_revalide_pas_une_prescription_rejetee(self):
+        prescription = self.declarer(date(2026, 3, 5), 12000)
+        prescription.changer_statut(StatutPrescription.REJETEE)
+        facture = self.facture()
+        self.ligne(facture, date(2026, 3, 5), 12000)
+        facture.rapprocher()
+
+        facture.valider(self.rh)
+
+        prescription.refresh_from_db()
+        self.assertEqual(prescription.statut, StatutPrescription.REJETEE)
+
+    def test_un_rejet_posterieur_au_rapprochement_est_respecte(self):
+        """Ligne concordante au rapprochement, prescription rejetée ensuite :
+        la validation de la facture ne doit pas l'écraser."""
+        prescription = self.declarer(date(2026, 3, 5), 12000)
+        facture = self.facture()
+        self.ligne(facture, date(2026, 3, 5), 12000)
+        facture.rapprocher()
+        prescription.changer_statut(StatutPrescription.REJETEE)
+
+        facture.valider(self.rh)
+
+        prescription.refresh_from_db()
+        self.assertEqual(prescription.statut, StatutPrescription.REJETEE)
+
+    def test_une_prescription_en_jeu_passe_avant_une_prescription_rejetee(self):
+        rejetee = self.declarer(date(2026, 3, 5), 12000, numero="ORD-R")
+        rejetee.changer_statut(StatutPrescription.REJETEE)
+        valable = self.declarer(date(2026, 3, 5), 12000, numero="ORD-V")
+        facture = self.facture()
+        ligne = self.ligne(facture, date(2026, 3, 5), 12000)
+
+        facture.rapprocher()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.prescription, valable)
+        self.assertEqual(ligne.statut, StatutLigne.CONCORDANTE)
+
+    def test_une_prescription_rejetee_non_facturee_n_est_pas_une_alerte(self):
+        prescription = self.declarer(date(2026, 3, 5), 12000)
+        prescription.changer_statut(StatutPrescription.REJETEE)
+        facture = self.facture()
+
+        facture.rapprocher()
+
+        self.assertEqual(facture.synthese()["non_facturees"], 0)
