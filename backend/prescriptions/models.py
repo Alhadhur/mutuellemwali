@@ -126,6 +126,36 @@ class Prescription(models.Model):
 
         return (meme_numero | meme_montant).distinct()
 
+    def _motif_doublon(self, doublons):
+        """Dit précisément ce qui coïncide avec chaque prescription suspecte
+        — critère, dates, écart — pour que le service mutuelle sache quoi
+        vérifier sans rouvrir les deux fiches."""
+        if self.ayant_droit_id:
+            beneficiaire = f"{self.ayant_droit.prenom} {self.ayant_droit.nom}"
+        else:
+            beneficiaire = f"l'agent lui-même ({self.agent.utilisateur.get_full_name()})"
+        montant = f"{self.montant_total:,}".replace(",", "\u202f")
+
+        details = []
+        for doublon in doublons:
+            criteres = []
+            if self.numero_ordonnance and doublon.numero_ordonnance == self.numero_ordonnance:
+                criteres.append("même numéro d'ordonnance")
+            if doublon.montant_total == self.montant_total:
+                criteres.append(f"même montant ({montant} KMF)")
+            ecart = abs((self.date_emission - doublon.date_emission).days)
+            if ecart == 0:
+                quand = f"le même jour ({doublon.date_emission:%d/%m/%Y})"
+            else:
+                quand = f"émise le {doublon.date_emission:%d/%m/%Y}, {ecart} jour{'s' if ecart > 1 else ''} d'écart"
+            details.append(f"{doublon.numero_ordonnance} : {' et '.join(criteres)}, {quand}")
+
+        return (
+            f"Doublon potentiel pour {beneficiaire} chez {self.prestataire.nom} — "
+            + " ; ".join(details)
+            + "."
+        )
+
     def _generer_numero_ordonnance(self):
         """Référence interne générée à la saisie, au format ORD-<année>-<séquence> :
         remplace la saisie manuelle du numéro inscrit sur le papier, trop peu
@@ -219,15 +249,10 @@ class Prescription(models.Model):
             self.montant_rembourse = 0 if motifs_non_eligibilite else self.calculer_montant_rembourse()
 
         if est_nouvelle and detecter:
-            doublons = self.detecter_doublons()
-            if doublons.exists():
+            doublons = list(self.detecter_doublons().order_by("date_emission", "pk"))
+            if doublons:
                 self.statut = StatutPrescription.EN_CONTROLE
-                numeros = ", ".join(sorted(set(doublons.values_list("numero_ordonnance", flat=True))))
-                self.motif_signalement = (
-                    "Doublon potentiel détecté avec la/les prescription(s) portant le(s) "
-                    f"numéro(s) {numeros} (même agent, même prestataire, même bénéficiaire, "
-                    f"numéro ou montant identique à ±{FENETRE_DOUBLON_JOURS} jours)."
-                )
+                self.motif_signalement = self._motif_doublon(doublons)
             for motif in motifs_non_eligibilite:
                 self.statut = StatutPrescription.EN_CONTROLE
                 self.motif_signalement = (self.motif_signalement + " " if self.motif_signalement else "") + motif

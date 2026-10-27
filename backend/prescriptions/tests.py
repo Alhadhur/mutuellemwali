@@ -715,3 +715,65 @@ class BlocageAgentSortiTest(BasePrescriptions):
         self.client.force_login(self.agent.utilisateur)
         self.client.post("/backoffice/mon-tableau-de-bord/prescription/", self.donnees(date.today()))
         self.assertEqual(Prescription.objects.get().montant_rembourse, 8000)
+
+
+class MotifDoublonPrecisTest(BasePrescriptions):
+    """Le motif dit exactement ce qui coïncide, plutôt qu'une liste de
+    critères possibles."""
+
+    def soumettre(self, jour, montant=12500, numero=""):
+        return Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            montant_total=montant,
+            date_emission=jour,
+            numero_ordonnance=numero,
+        )
+
+    def test_meme_montant_a_quelques_jours_d_ecart(self):
+        premiere = self.soumettre(date(2026, 10, 3))
+
+        seconde = self.soumettre(date(2026, 10, 5))
+
+        self.assertEqual(
+            seconde.motif_signalement,
+            f"Doublon potentiel pour l'agent lui-même (Fatima Zahra) chez Pharmacie Centrale — "
+            f"{premiere.numero_ordonnance} : même montant (12 500 KMF), émise le 03/10/2026, 2 jours d'écart.",
+        )
+
+    def test_meme_jour(self):
+        self.soumettre(date(2026, 10, 3))
+
+        seconde = self.soumettre(date(2026, 10, 3))
+
+        self.assertIn("le même jour (03/10/2026)", seconde.motif_signalement)
+
+    def test_meme_numero_papier_avec_montant_different(self):
+        self.soumettre(date(2026, 10, 3), montant=5000, numero="PAPIER-42")
+
+        seconde = self.soumettre(date(2026, 10, 20), montant=9000, numero="PAPIER-42")
+
+        self.assertIn("PAPIER-42 : même numéro d'ordonnance, émise le 03/10/2026, 17 jours d'écart", seconde.motif_signalement)
+        self.assertNotIn("même montant", seconde.motif_signalement)
+
+    def test_le_beneficiaire_ayant_droit_est_nomme(self):
+        enfant = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Amina",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            statut_verification=StatutVerification.VALIDE,
+            date_naissance=date(2015, 1, 1),
+        )
+        Prescription.objects.create(
+            agent=self.agent, ayant_droit=enfant, prestataire=self.prestataire,
+            montant_total=12500, date_emission=date(2026, 10, 3),
+        )
+
+        seconde = Prescription.objects.create(
+            agent=self.agent, ayant_droit=enfant, prestataire=self.prestataire,
+            montant_total=12500, date_emission=date(2026, 10, 3),
+        )
+
+        self.assertTrue(seconde.motif_signalement.startswith("Doublon potentiel pour Amina Zahra chez Pharmacie Centrale"))
