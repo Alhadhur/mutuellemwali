@@ -1,6 +1,8 @@
 from datetime import date
 
+from django.db.models import ProtectedError
 from django.test import TestCase
+from django.urls import reverse
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import (
@@ -257,3 +259,56 @@ class CotisationTest(BaseFamille):
 
         self.assertEqual(detail[0], ("Cotisation de base", 5000))
         self.assertEqual(sum(montant for _, montant in detail), self.relire().cotisation_mensuelle)
+
+
+class SuppressionProtegeeTest(TestCase):
+    """Un agent ou un ayant droit qui a des prescriptions ne se supprime pas,
+    d'où que vienne la demande : les prescriptions et leur historique
+    partiraient sinon en cascade."""
+
+    def setUp(self):
+        self.compte = Utilisateur.objects.create_user("A0001", "x", nom="Zahra", prenom="Fatima", role=Role.AGENT)
+        self.agent = Agent.objects.create(utilisateur=self.compte, site="Moroni")
+        self.enfant = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Amina",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+        )
+        prestataire = Prestataire.objects.create(
+            type_prestataire=TypePrestataire.PHARMACIE, nom="Pharmacie", taux_prise_en_charge=80
+        )
+        self.prescription = Prescription.objects.create(
+            agent=self.agent,
+            ayant_droit=self.enfant,
+            prestataire=prestataire,
+            montant_total=1000,
+            date_emission=date.today(),
+        )
+
+    def test_ni_l_agent_ni_l_ayant_droit_ni_le_compte_ne_se_suppriment(self):
+        for objet in (self.agent, self.enfant, self.compte):
+            with self.assertRaises(ProtectedError):
+                objet.delete()
+
+        self.assertTrue(Prescription.objects.filter(pk=self.prescription.pk).exists())
+
+    def test_l_admin_django_refuse_la_suppression(self):
+        administrateur = Utilisateur.objects.create_superuser("SU1", "x", nom="Admin", prenom="Super")
+        self.client.force_login(administrateur)
+
+        reponse = self.client.post(
+            reverse("admin:beneficiaires_agent_delete", args=[self.agent.pk]), {"post": "yes"}
+        )
+
+        self.assertEqual(reponse.status_code, 200)  # page d'explication, pas de redirection
+        self.assertTrue(Agent.objects.filter(pk=self.agent.pk).exists())
+
+    def test_sans_prescription_la_suppression_reste_possible(self):
+        self.prescription.delete()
+
+        self.enfant.delete()
+        self.agent.delete()
+
+        self.assertFalse(Agent.objects.filter(pk=self.agent.pk).exists())

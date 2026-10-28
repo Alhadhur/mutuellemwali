@@ -28,10 +28,15 @@ STATUTS_MANUELS = {StatutPrescription.VALIDEE, StatutPrescription.REJETEE}
 
 
 class Prescription(models.Model):
-    agent = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="prescriptions")
+    # PROTECT : un agent ou un ayant droit qui a des prescriptions ne peut
+    # pas être supprimé, d'où que vienne la suppression (back-office, admin
+    # Django, suppression du compte utilisateur…) — l'effacement emporterait
+    # sinon prescriptions et historique, montants validés compris. Pour
+    # retirer la couverture : sortie de la mutuelle ou fin de couverture.
+    agent = models.ForeignKey(Agent, on_delete=models.PROTECT, related_name="prescriptions")
     ayant_droit = models.ForeignKey(
         AyantDroit,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="prescriptions",
         null=True,
         blank=True,
