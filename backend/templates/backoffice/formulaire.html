@@ -126,6 +126,30 @@
   </section>
 {% endif %}
 
+{% if suppression_ayant_droit %}
+  <section>
+    <h2>Zone de suppression</h2>
+    <div style="padding:18px;">
+      {% if suppression_ayant_droit.nombre_prescriptions %}
+        <p style="margin:0;font-size:13px;color:var(--muted);">
+          Suppression impossible : {{ suppression_ayant_droit.nombre_prescriptions }} prescription{{ suppression_ayant_droit.nombre_prescriptions|pluralize }}
+          le concerne{{ suppression_ayant_droit.nombre_prescriptions|pluralize:"nt" }} et serai{{ suppression_ayant_droit.nombre_prescriptions|pluralize:"en" }}t effacée{{ suppression_ayant_droit.nombre_prescriptions|pluralize }} avec lui.
+          Pour qu'il ne soit plus couvert, renseignez plutôt la <strong>fin de couverture</strong> ci-dessus.
+        </p>
+      {% else %}
+        <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+          Réservé à une fiche créée par erreur : aucune prescription ne le concerne.
+        </p>
+        <form method="post" action="{% url 'backoffice:ayant_droit_supprimer' ayant_droit.pk %}"
+              onsubmit="return confirm('Supprimer définitivement {{ ayant_droit.prenom|escapejs }} {{ ayant_droit.nom|escapejs }} ? Cette action est irréversible.');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Supprimer l'ayant droit</button>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+{% endif %}
+
 {% if url_supprimer %}
   <section>
     <h2>Zone de suppression</h2>

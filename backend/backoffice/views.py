@@ -504,7 +504,43 @@ class AgentDetail(AccesBackoffice, DetailView):
         contexte["ayants_droit"] = self.object.ayants_droit.all()
         contexte["prescriptions"] = self.object.prescriptions.select_related("prestataire")[:20]
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
+        contexte["est_superuser"] = self.request.user.is_superuser
+        contexte["nombre_prescriptions"] = self.object.prescriptions.count()
         return contexte
+
+
+class AgentSupprimer(AccesSuperuser, View):
+    """Pour une fiche créée par erreur (doublon de saisie, mauvais
+    matricule), et seulement tant qu'aucune prescription ne s'y rattache —
+    pour lui ou ses ayants droit. Au-delà, l'effacement emporterait en
+    cascade prescriptions et historique : on passe par la sortie de la
+    mutuelle, qui conserve tout.
+
+    Le compte de connexion part avec la fiche s'il n'était qu'un compte
+    agent ; un compte RH ou direction qui portait aussi une fiche agent est
+    conservé."""
+
+    def post(self, request, pk):
+        agent = get_object_or_404(Agent.objects.select_related("utilisateur"), pk=pk)
+        if agent.prescriptions.exists():
+            messages.error(
+                request,
+                f"Impossible de supprimer l'agent {agent.matricule} : des prescriptions s'y rattachent. "
+                "Pour qu'il ne soit plus couvert, indiquez plutôt sa sortie de la mutuelle "
+                "(Modifier → décocher « Membre de la mutuelle »).",
+            )
+            return redirect("backoffice:agent_detail", pk=pk)
+
+        libelle = str(agent)
+        nombre_ayants_droit = agent.ayants_droit.count()
+        compte = agent.utilisateur
+        with transaction.atomic():
+            agent.delete()
+            if compte.role == Role.AGENT and not compte.is_superuser:
+                compte.delete()
+        suite = f", avec {nombre_ayants_droit} ayant(s) droit" if nombre_ayants_droit else ""
+        messages.success(request, f"Agent {libelle} supprimé{suite}.")
+        return redirect("backoffice:agents")
 
 
 class AgentCreer(FormulaireBase, CreateView):
@@ -640,7 +676,31 @@ class AyantDroitModifier(FormulaireBase, UpdateView):
     def get_context_data(self, **kwargs):
         contexte = super().get_context_data(**kwargs)
         contexte["ayant_droit"] = self.object
+        if self.request.user.is_superuser:
+            contexte["suppression_ayant_droit"] = {"nombre_prescriptions": self.object.prescriptions.count()}
         return contexte
+
+
+class AyantDroitSupprimer(AccesSuperuser, View):
+    """Pour une fiche créée par erreur, tant qu'aucune prescription ne la
+    concerne. Sinon la fin de couverture (divorce, décès…) garde
+    l'historique tout en retirant la couverture."""
+
+    def post(self, request, pk):
+        ayant_droit = get_object_or_404(AyantDroit, pk=pk)
+        if ayant_droit.prescriptions.exists():
+            messages.error(
+                request,
+                f"Impossible de supprimer {ayant_droit.prenom} {ayant_droit.nom} : des prescriptions le "
+                "concernent. Pour qu'il ne soit plus couvert, renseignez plutôt la fin de couverture.",
+            )
+            return redirect("backoffice:ayant_droit_modifier", pk=pk)
+
+        agent_pk = ayant_droit.agent_id
+        libelle = f"{ayant_droit.prenom} {ayant_droit.nom}"
+        ayant_droit.delete()
+        messages.success(request, f"Ayant droit {libelle} supprimé.")
+        return redirect("backoffice:agent_detail", pk=agent_pk)
 
 
 class AyantDroitExport(AccesBackoffice, View):

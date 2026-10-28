@@ -24,12 +24,15 @@ urlpatterns = [
     path("agents/nouveau/", views.AgentCreer.as_view(), name="agent_creer"),
     path("agents/<int:pk>/", views.AgentDetail.as_view(), name="agent_detail"),
     path("agents/<int:pk>/modifier/", views.AgentModifier.as_view(), name="agent_modifier"),
+    path("agents/<int:pk>/supprimer/", views.AgentSupprimer.as_view(), name="agent_supprimer"),
 
     path("ayants-droit/", views.AyantDroitListe.as_view(), name="ayants_droit"),
     path("ayants-droit/nouveau/", views.AyantDroitCreer.as_view(), name="ayant_droit_creer"),
     path("ayants-droit/export/", views.AyantDroitExport.as_view(), name="ayant_droit_export"),
     path("ayants-droit/importer/", views.AyantDroitImport.as_view(), name="ayant_droit_import"),
     path("ayants-droit/<int:pk>/", views.AyantDroitModifier.as_view(), name="ayant_droit_modifier"),
+    # Avant la route générique « <decision> », qui capturerait « supprimer ».
+    path("ayants-droit/<int:pk>/supprimer/", views.AyantDroitSupprimer.as_view(), name="ayant_droit_supprimer"),
     path("ayants-droit/<int:pk>/<str:decision>/", views.AyantDroitVerifier.as_view(), name="ayant_droit_verifier"),
 
     path("prescriptions/", views.PrescriptionListe.as_view(), name="prescriptions"),

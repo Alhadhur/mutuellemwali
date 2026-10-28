@@ -121,4 +121,28 @@
     <div class="empty">Aucune prescription soumise.</div>
   {% endif %}
 </section>
+{% if est_superuser %}
+  <section>
+    <h2>Zone de suppression</h2>
+    <div style="padding:18px;">
+      {% if nombre_prescriptions %}
+        <p style="margin:0;font-size:13px;color:var(--muted);">
+          Suppression impossible : {{ nombre_prescriptions }} prescription{{ nombre_prescriptions|pluralize }} se rattache{{ nombre_prescriptions|pluralize:"nt" }}
+          à cet agent ou à ses ayants droit, et serai{{ nombre_prescriptions|pluralize:"en" }}t effacée{{ nombre_prescriptions|pluralize }} avec lui.
+          Pour qu'il ne soit plus couvert, <a href="{% url 'backoffice:agent_modifier' agent.pk %}">indiquez sa sortie de la mutuelle</a>.
+        </p>
+      {% else %}
+        <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+          Réservé à une fiche créée par erreur (doublon, mauvais matricule) : aucune prescription ne s'y rattache.
+          Ses ayants droit{% if ayants_droit %} ({{ ayants_droit|length }}){% endif %} et son compte de connexion agent seront supprimés avec elle.
+        </p>
+        <form method="post" action="{% url 'backoffice:agent_supprimer' agent.pk %}"
+              onsubmit="return confirm('Supprimer définitivement l\'agent {{ agent.matricule|escapejs }}{% if ayants_droit %} et ses {{ ayants_droit|length }} ayant(s) droit{% endif %} ? Cette action est irréversible.');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Supprimer l'agent</button>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+{% endif %}
 {% endblock %}

@@ -1743,3 +1743,89 @@ class MontantRejeteBarreTest(BaseBackoffice):
         self.client.force_login(self.rh)
 
         self.assertNotContains(self.client.get(reverse("backoffice:prescriptions")), '<s class="montant-annule"')
+
+
+class SuppressionAgentAyantDroitTest(BaseBackoffice):
+    """Suppression réservée aux fiches créées par erreur : aucune
+    prescription ne doit disparaître avec elles."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.superuser)
+        compte = Utilisateur.objects.create_user("A0099", "x", nom="Erreur", prenom="Saisie", role=Role.AGENT)
+        self.agent_errone = Agent.objects.create(utilisateur=compte, site="Moroni")
+        self.enfant_errone = AyantDroit.objects.create(
+            agent=self.agent_errone,
+            nom="Erreur",
+            prenom="Enfant",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+        )
+
+    def test_un_agent_sans_prescription_est_supprime_avec_ses_ayants_droit_et_son_compte(self):
+        reponse = self.client.post(reverse("backoffice:agent_supprimer", args=[self.agent_errone.pk]))
+
+        self.assertRedirects(reponse, reverse("backoffice:agents"))
+        self.assertFalse(Agent.objects.filter(pk=self.agent_errone.pk).exists())
+        self.assertFalse(AyantDroit.objects.filter(pk=self.enfant_errone.pk).exists())
+        self.assertFalse(Utilisateur.objects.filter(matricule="A0099").exists())
+
+    def test_un_agent_avec_prescriptions_n_est_pas_supprime(self):
+        reponse = self.client.post(reverse("backoffice:agent_supprimer", args=[self.agent.pk]))
+
+        self.assertRedirects(reponse, reverse("backoffice:agent_detail", args=[self.agent.pk]))
+        self.assertTrue(Agent.objects.filter(pk=self.agent.pk).exists())
+        self.assertTrue(Prescription.objects.filter(pk=self.prescription.pk).exists())
+
+    def test_une_prescription_d_ayant_droit_bloque_aussi_la_suppression_de_l_agent(self):
+        Prescription.objects.create(
+            agent=self.agent_errone,
+            ayant_droit=self.enfant_errone,
+            prestataire=self.prestataire,
+            montant_total=1000,
+            date_emission=date.today(),
+        )
+
+        self.client.post(reverse("backoffice:agent_supprimer", args=[self.agent_errone.pk]))
+        self.client.post(reverse("backoffice:ayant_droit_supprimer", args=[self.enfant_errone.pk]))
+
+        self.assertTrue(Agent.objects.filter(pk=self.agent_errone.pk).exists())
+        self.assertTrue(AyantDroit.objects.filter(pk=self.enfant_errone.pk).exists())
+
+    def test_un_ayant_droit_sans_prescription_est_supprime(self):
+        reponse = self.client.post(reverse("backoffice:ayant_droit_supprimer", args=[self.enfant_errone.pk]))
+
+        self.assertRedirects(reponse, reverse("backoffice:agent_detail", args=[self.agent_errone.pk]))
+        self.assertFalse(AyantDroit.objects.filter(pk=self.enfant_errone.pk).exists())
+        self.assertTrue(Agent.objects.filter(pk=self.agent_errone.pk).exists())
+
+    def test_le_service_mutuelle_ne_peut_pas_supprimer(self):
+        self.client.force_login(self.rh)
+
+        self.assertEqual(
+            self.client.post(reverse("backoffice:agent_supprimer", args=[self.agent_errone.pk])).status_code, 403
+        )
+        self.assertEqual(
+            self.client.post(reverse("backoffice:ayant_droit_supprimer", args=[self.enfant_errone.pk])).status_code,
+            403,
+        )
+        self.assertNotContains(
+            self.client.get(reverse("backoffice:agent_detail", args=[self.agent_errone.pk])), "Zone de suppression"
+        )
+
+    def test_la_fiche_explique_pourquoi_la_suppression_est_impossible(self):
+        reponse = self.client.get(reverse("backoffice:agent_detail", args=[self.agent.pk]))
+
+        self.assertContains(reponse, "Suppression impossible : 1 prescription se rattache")
+        self.assertNotContains(reponse, "Supprimer l'agent</button>")
+
+        reponse = self.client.get(reverse("backoffice:agent_detail", args=[self.agent_errone.pk]))
+        self.assertContains(reponse, "Supprimer l'agent</button>")
+
+    def test_la_verification_d_un_ayant_droit_fonctionne_toujours(self):
+        """La route « supprimer » est déclarée avant la route générique des
+        décisions : Valider / Rejeter doivent continuer de répondre."""
+        self.client.post(reverse("backoffice:ayant_droit_verifier", args=[self.enfant_errone.pk, "valider"]))
+
+        self.enfant_errone.refresh_from_db()
+        self.assertEqual(self.enfant_errone.statut_verification, StatutVerification.VALIDE)
