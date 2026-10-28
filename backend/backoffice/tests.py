@@ -1829,3 +1829,53 @@ class SuppressionAgentAyantDroitTest(BaseBackoffice):
 
         self.enfant_errone.refresh_from_db()
         self.assertEqual(self.enfant_errone.statut_verification, StatutVerification.VALIDE)
+
+
+class FiltreMoisPrescriptionsTest(BaseBackoffice):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.octobre = Prescription.objects.create(
+            agent=self.agent, prestataire=self.prestataire, montant_total=1000, date_emission=date(2026, 10, 15)
+        )
+        self.septembre = Prescription.objects.create(
+            agent=self.agent, prestataire=self.prestataire, montant_total=2000, date_emission=date(2026, 9, 30)
+        )
+
+    def test_le_filtre_mois_ne_garde_que_le_mois_choisi(self):
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"mois": "2026-10"})
+
+        self.assertContains(reponse, self.octobre.numero_ordonnance)
+        self.assertNotContains(reponse, self.septembre.numero_ordonnance)
+
+    def test_les_mois_sont_proposes_avec_leur_nombre_d_actes(self):
+        reponse = self.client.get(reverse("backoffice:prescriptions"))
+
+        self.assertContains(reponse, "Septembre 2026 (1)")
+        self.assertIn(("2026-09", "Septembre 2026", 1), reponse.context["mois_disponibles"])
+
+    def test_l_export_suit_le_filtre_mois(self):
+        contenu = self.client.get(reverse("backoffice:prescription_export"), {"mois": "2026-09"}).content.decode(
+            "utf-8-sig"
+        )
+
+        self.assertIn(self.septembre.numero_ordonnance, contenu)
+        self.assertNotIn(self.octobre.numero_ordonnance, contenu)
+
+    def test_une_valeur_de_mois_invalide_est_ignoree(self):
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"mois": "2026-13"})
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, self.octobre.numero_ordonnance)
+
+    def test_le_nombre_de_lignes_par_page_se_choisit(self):
+        for _ in range(30):
+            Prescription.objects.create(
+                agent=self.agent, prestataire=self.prestataire, montant_total=500, date_emission=date(2026, 8, 1)
+            )
+
+        self.assertEqual(len(self.client.get(reverse("backoffice:prescriptions")).context["lignes"]), 25)
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"par_page": "50"})
+        self.assertEqual(len(reponse.context["lignes"]), 33)
+        reponse = self.client.get(reverse("backoffice:prescriptions"), {"par_page": "100000"})
+        self.assertEqual(len(reponse.context["lignes"]), 25)

@@ -1,4 +1,5 @@
 {% extends "backoffice/liste.html" %}
+{% load affichage %}
 
 {% block filtres %}
   {% if agent_filtre %}
@@ -30,6 +31,17 @@
       </option>
     {% endfor %}
   </select>
+  <select name="mois" title="Mois d'émission">
+    <option value="">Tous les mois</option>
+    {% for valeur, libelle, nombre in mois_disponibles %}
+      <option value="{{ valeur }}" {% if filtre_mois == valeur %}selected{% endif %}>{{ libelle }} ({{ nombre|milliers }})</option>
+    {% endfor %}
+  </select>
   <input type="date" name="date_min" value="{{ filtre_date_min }}" title="Émise à partir du">
   <input type="date" name="date_max" value="{{ filtre_date_max }}" title="Émise jusqu'au">
+  <select name="par_page" title="Lignes par page">
+    {% for taille in tailles_page %}
+      <option value="{{ taille }}" {% if filtre_par_page == taille %}selected{% endif %}>{{ taille }} par page</option>
+    {% endfor %}
+  </select>
 {% endblock %}

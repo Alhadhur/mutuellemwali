@@ -5,13 +5,16 @@ Les listes partagent un même template piloté par `colonnes` : chaque entrée e
 soit un nom d'attribut/méthode du modèle, soit un appelable recevant l'objet.
 """
 
+import re
+
 from django import forms as django_forms
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import ProtectedError, Q
+from django.db.models import Count, ProtectedError, Q
+from django.db.models.functions import TruncMonth
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -823,6 +826,9 @@ class AyantDroitVerifier(AccesModification, View):
 # --- Prescriptions --------------------------------------------------------
 
 
+LIBELLES_MOIS = dict(MOIS)
+
+
 def _filtrer_prescriptions(queryset, params):
     """Filtres de la liste, partagés avec son export (voir PrescriptionExport)
     pour que le fichier téléchargé reflète ce que l'écran affiche, pas
@@ -838,6 +844,13 @@ def _filtrer_prescriptions(queryset, params):
     nature = params.get("nature", "")
     if nature:
         queryset = queryset.filter(nature_id=nature)
+
+    # « AAAA-MM » : un mois entier d'un seul choix, plutôt que deux dates à
+    # saisir. Une valeur mal formée est ignorée, pas une erreur.
+    mois = params.get("mois", "")
+    if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mois):
+        annee, numero = (int(partie) for partie in mois.split("-"))
+        queryset = queryset.filter(date_emission__year=annee, date_emission__month=numero)
 
     date_min = params.get("date_min", "")
     if date_min:
@@ -912,8 +925,25 @@ class PrescriptionListe(ListeBase):
         queryset = super().get_queryset().select_related("agent__utilisateur", "prestataire", "ayant_droit", "nature")
         return _filtrer_prescriptions(queryset, self.request.GET)
 
+    # Choix proposés à l'écran ; toute autre valeur retombe sur le défaut.
+    TAILLES_PAGE = (25, 50, 100)
+
+    def get_paginate_by(self, queryset):
+        taille = self.request.GET.get("par_page", "")
+        return int(taille) if taille.isdigit() and int(taille) in self.TAILLES_PAGE else self.paginate_by
+
     def get_context_data(self, **kwargs):
         contexte = super().get_context_data(**kwargs)
+        contexte["filtre_mois"] = self.request.GET.get("mois", "")
+        contexte["mois_disponibles"] = [
+            (f"{ligne['mois']:%Y-%m}", f"{LIBELLES_MOIS[ligne['mois'].month]} {ligne['mois'].year}", ligne["nombre"])
+            for ligne in Prescription.objects.annotate(mois=TruncMonth("date_emission"))
+            .values("mois")
+            .annotate(nombre=Count("id"))
+            .order_by("-mois")
+        ]
+        contexte["filtre_par_page"] = self.get_paginate_by(None)
+        contexte["tailles_page"] = self.TAILLES_PAGE
         contexte["filtre_statut"] = self.request.GET.get("statut", "")
         contexte["filtre_prestataire"] = self.request.GET.get("prestataire", "")
         contexte["filtre_nature"] = self.request.GET.get("nature", "")
