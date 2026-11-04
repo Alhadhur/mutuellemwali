@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
-from facturation.models import Facture, StatutFacture, StatutLigne
+from facturation.models import Facture, LigneFacture, StatutFacture, StatutLigne
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription, StatutPrescription
 from prestataires.models import Prestataire, StatutPrestataire, TarifPrestataire, TypePrestataire
@@ -1879,3 +1879,92 @@ class FiltreMoisPrescriptionsTest(BaseBackoffice):
         self.assertEqual(len(reponse.context["lignes"]), 33)
         reponse = self.client.get(reverse("backoffice:prescriptions"), {"par_page": "100000"})
         self.assertEqual(len(reponse.context["lignes"]), 25)
+
+
+class PrescriptionDepuisLigneFactureTest(BaseBackoffice):
+    """Rattrapage d'une ordonnance jamais saisie, depuis la ligne « sans
+    prescription » de la facture qui la révèle."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.consultation = NatureSoin.objects.get(libelle="Consultation")
+        self.enfant = AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Amine",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            statut_verification=StatutVerification.VALIDE,
+            date_naissance=date(2015, 1, 1),
+        )
+        self.facture = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-9", mois=3, annee=2026, montant_total_declare=8000
+        )
+        self.ligne = LigneFacture.objects.create(
+            facture=self.facture,
+            date_soin=date(2026, 3, 5),
+            matricule="a0001",
+            nom_beneficiaire="Amine",
+            nature="consultation",
+            montant_soin=10000,
+            montant_reclame=8000,
+        )
+        self.facture.rapprocher()
+        self.ligne.refresh_from_db()
+        self.url = reverse("backoffice:prescription_creer") + f"?ligne={self.ligne.pk}"
+
+    def test_la_ligne_sans_prescription_propose_de_la_creer(self):
+        self.assertEqual(self.ligne.statut, StatutLigne.SANS_PRESCRIPTION)
+
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertContains(reponse, self.url.replace("&", "&amp;"))
+        self.assertContains(reponse, "Créer la prescription")
+
+    def test_le_formulaire_est_prerempli_depuis_la_ligne(self):
+        reponse = self.client.get(self.url)
+
+        initial = reponse.context["form"].initial
+        self.assertEqual(initial["agent"], self.agent.pk)
+        self.assertEqual(initial["ayant_droit"], self.enfant.pk)
+        self.assertEqual(initial["prestataire"], self.prestataire.pk)
+        self.assertEqual(initial["nature"], self.consultation.pk)
+        self.assertEqual(initial["montant_total"], 10000)
+        self.assertEqual(initial["date_emission"], date(2026, 3, 5))
+        self.assertContains(reponse, "Prérempli depuis la ligne du 05/03/2026 de la facture")
+        self.assertContains(reponse, "F-9 (Pharmacie Centrale)")
+
+    def test_un_nom_qui_designe_l_agent_laisse_l_agent_lui_meme(self):
+        self.ligne.nom_beneficiaire = "ZAHRA Fatima"
+        self.ligne.save()
+
+        initial = self.client.get(self.url).context["form"].initial
+
+        self.assertNotIn("ayant_droit", initial)
+
+    def test_l_enregistrement_rapproche_la_facture_et_y_revient(self):
+        reponse = self.client.post(
+            self.url,
+            {
+                "agent": self.agent.pk,
+                "ayant_droit": self.enfant.pk,
+                "prestataire": self.prestataire.pk,
+                "nature": self.consultation.pk,
+                "montant_total": "10000",
+                "date_emission": "2026-03-05",
+            },
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.ligne.refresh_from_db()
+        self.assertEqual(self.ligne.statut, StatutLigne.CONCORDANTE)
+        self.assertEqual(self.ligne.prescription.soumis_par, self.rh)
+
+    def test_pas_de_bouton_sur_une_facture_validee(self):
+        self.facture.statut = StatutFacture.VALIDEE
+        self.facture.save()
+
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertNotContains(reponse, "Créer la prescription")

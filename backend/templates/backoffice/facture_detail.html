@@ -126,6 +126,9 @@
             <td style="text-align:right;">
               {% if ligne.prescription %}
                 <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' ligne.prescription.pk %}">Prescription</a>
+              {% elif ligne.statut == 'SANS_PRESCRIPTION' and peut_modifier and facture.statut != 'VALIDEE' %}
+                <a class="btn btn-petit" href="{% url 'backoffice:prescription_creer' %}?ligne={{ ligne.pk }}"
+                   title="Saisir l'ordonnance correspondante, préremplie depuis cette ligne">Créer la prescription</a>
               {% endif %}
             </td>
           </tr>

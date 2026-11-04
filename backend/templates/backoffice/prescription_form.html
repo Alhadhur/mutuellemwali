@@ -7,6 +7,14 @@ fur et à mesure de la saisie.
 {% endcomment %}
 
 {% block champs %}
+  {% if ligne_facture %}
+    <div class="message champ--large" style="grid-column:1 / -1;">
+      Prérempli depuis la ligne du {{ ligne_facture.date_soin|date:"d/m/Y" }} de la facture
+      {{ ligne_facture.facture.numero }} ({{ ligne_facture.facture.prestataire.nom }}) :
+      {{ ligne_facture.matricule }} — « {{ ligne_facture.nom_beneficiaire }} »{% if ligne_facture.nature %}, {{ ligne_facture.nature }}{% endif %}.
+      Vérifiez chaque champ sur l'ordonnance papier avant d'enregistrer ; la facture sera aussitôt rapprochée de nouveau.
+    </div>
+  {% endif %}
   {% include "backoffice/_recherche_agent.html" with champ=form.agent %}
 
   <div class="champ champ--large{% if form.ayant_droit.errors %} champ--erreur{% endif %}">
@@ -37,6 +45,10 @@ fur et à mesure de la saisie.
   const aideAyantDroit = document.getElementById('aide-ayant-droit');
 
   async function chargerAyantsDroit(agentId) {
+    // Bénéficiaire déjà choisi (modification, saisie préremplie, formulaire
+    // réaffiché en erreur) : à conserver s'il fait partie de la liste
+    // rechargée, plutôt que de retomber sur « l'agent lui-même ».
+    const selectionActuelle = selectAyantDroit.value;
     selectAyantDroit.innerHTML = '<option value="">L\'agent lui-même</option>';
     if (!agentId) {
       selectAyantDroit.disabled = true;
@@ -51,6 +63,9 @@ fur et à mesure de la saisie.
       option.value = ayantDroit.id;
       option.textContent = ayantDroit.libelle + (ayantDroit.couvert ? '' : ' — non couvert');
       selectAyantDroit.appendChild(option);
+    }
+    if (selectionActuelle && selectAyantDroit.querySelector('option[value="' + selectionActuelle + '"]')) {
+      selectAyantDroit.value = selectionActuelle;
     }
     aideAyantDroit.textContent = donnees.resultats.length
       ? "Laisser « L'agent lui-même » si l'ordonnance le concerne."

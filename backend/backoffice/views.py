@@ -1070,12 +1070,89 @@ class PrescriptionCreer(FormulaireBase, CreateView):
     titre = "Saisir une prescription"
     success_url = reverse_lazy("backoffice:prescriptions")
 
+    def dispatch(self, request, *args, **kwargs):
+        # Saisie lancée depuis une ligne de facture « sans prescription »
+        # (voir facture_detail) : rattrapage d'une ordonnance papier jamais
+        # saisie, préremplie à partir de ce que le prestataire a facturé.
+        self.ligne_facture = None
+        identifiant = request.GET.get("ligne", "")
+        if identifiant.isdigit():
+            self.ligne_facture = (
+                LigneFacture.objects.select_related("facture__prestataire").filter(pk=identifiant).first()
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_initial(self):
+        initial = super().get_initial()
+        ligne = self.ligne_facture
+        if not ligne:
+            return initial
+        initial.update(
+            prestataire=ligne.facture.prestataire.pk,
+            montant_total=ligne.montant_soin,
+            date_emission=ligne.date_soin,
+        )
+        nature = NatureSoin.proposables().filter(libelle__iexact=(ligne.nature or "").strip()).first()
+        if nature:
+            initial["nature"] = nature.pk
+        agent = Agent.objects.filter(utilisateur__matricule__iexact=ligne.matricule.strip()).first()
+        if agent:
+            initial["agent"] = agent.pk
+            ayant_droit = _ayant_droit_designe(agent, ligne.nom_beneficiaire)
+            if ayant_droit:
+                initial["ayant_droit"] = ayant_droit.pk
+        return initial
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        if self.ligne_facture:
+            contexte["ligne_facture"] = self.ligne_facture
+            contexte["url_retour"] = reverse("backoffice:facture_detail", args=[self.ligne_facture.facture_id])
+        return contexte
+
     def form_valid(self, form):
         form.instance.soumis_par = self.request.user
-        return super().form_valid(form)
+        reponse = super().form_valid(form)
+        ligne = self.ligne_facture
+        if ligne and ligne.facture.statut != StatutFacture.VALIDEE:
+            # La facture se recalcule aussitôt : la ligne doit retrouver la
+            # prescription qui vient d'être saisie, sans détour par
+            # « Rapprocher ».
+            ligne.facture.rapprocher()
+            ligne.refresh_from_db()
+            messages.info(
+                self.request,
+                f"Facture {ligne.facture.numero} rapprochée de nouveau : la ligne du "
+                f"{ligne.date_soin:%d/%m/%Y} est maintenant « {ligne.get_statut_display()} ».",
+            )
+        return reponse
 
     def get_success_url(self):
+        if self.ligne_facture:
+            return reverse("backoffice:facture_detail", args=[self.ligne_facture.facture_id])
         return reverse("backoffice:prescription_detail", args=[self.object.pk])
+
+
+def _ayant_droit_designe(agent, nom_ecrit):
+    """L'ayant droit que désigne le nom écrit sur une facture, s'il n'y a
+    aucune ambiguïté — sinon None, et la saisie reste « l'agent lui-même »
+    à corriger au besoin. Même tolérance que le rapprochement (voir
+    LigneFacture.beneficiaire_correspond) : nom seul, prénom seul ou ordre
+    inversé sont acceptés."""
+    from facturation.models import _mots_normalises
+
+    mots = _mots_normalises(nom_ecrit)
+    if not mots:
+        return None
+
+    def correspond(nom):
+        attendus = _mots_normalises(nom)
+        return bool(attendus) and (mots <= attendus or attendus <= mots)
+
+    if correspond(agent.utilisateur.get_full_name()):
+        return None
+    candidats = [a for a in agent.ayants_droit.all() if correspond(f"{a.prenom} {a.nom}")]
+    return candidats[0] if len(candidats) == 1 else None
 
 
 class PrescriptionModifier(FormulaireBase, UpdateView):
