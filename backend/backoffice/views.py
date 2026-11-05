@@ -1625,11 +1625,18 @@ class FactureValider(AccesModification, View):
             messages.error(request, "Lancez d'abord le rapprochement.")
             return redirect("backoffice:facture_detail", pk=pk)
 
+        en_controle = facture.lignes_concordantes_en_controle().count()
         validees = facture.valider(request.user)
         messages.success(
             request,
             f"Facture validée. {validees} prescription(s) confirmée(s) par la facture et passée(s) en « Validée ».",
         )
+        if en_controle:
+            messages.error(
+                request,
+                f"{en_controle} ligne(s) concordante(s) non validée(s) : leur prescription est « En contrôle » "
+                "(doublon, couverture…). Traitez-les sur la fiche de chaque prescription.",
+            )
         return redirect("backoffice:facture_detail", pk=pk)
 
 

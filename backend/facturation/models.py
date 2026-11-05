@@ -205,6 +205,13 @@ class Facture(models.Model):
             "ecart_total": self.ecart_total,
         }
 
+    def lignes_concordantes_en_controle(self):
+        """Lignes concordantes que la validation de la facture laisse de
+        côté, faute d'avoir levé l'alerte de leur prescription."""
+        return self.lignes.filter(
+            statut=StatutLigne.CONCORDANTE, prescription__statut=StatutPrescription.EN_CONTROLE
+        )
+
     def valider(self, utilisateur):
         """Le service mutuelle valide la facture ; les prescriptions dont la
         ligne concorde exactement passent alors en « Validée », avec la
@@ -214,14 +221,16 @@ class Facture(models.Model):
         par une. Une prescription rejetée n'est jamais revalidée par une
         facture, même si elle a été rejetée après le rapprochement : le rejet
         est une décision de la mutuelle, la facture ne la renverse pas.
+
+        Une prescription « En contrôle » n'est pas validée non plus, même si
+        sa ligne concorde : elle porte une alerte (doublon, agent suspendu,
+        couverture…) que la facture ne lève pas. Elle se traite sur sa fiche
+        (voir lignes_concordantes_en_controle).
         """
         validees = 0
         for ligne in self.lignes.filter(statut=StatutLigne.CONCORDANTE).select_related("prescription"):
             prescription = ligne.prescription
-            if prescription and prescription.statut not in (
-                StatutPrescription.VALIDEE,
-                StatutPrescription.REJETEE,
-            ):
+            if prescription and prescription.statut == StatutPrescription.SOUMISE:
                 prescription.changer_statut(
                     StatutPrescription.VALIDEE,
                     utilisateur=utilisateur,

@@ -103,7 +103,9 @@
             <td>{{ ligne.montant_soin|kmf }}</td>
             <td>{{ ligne.montant_reclame|kmf }}</td>
             <td>
-              {% if ligne.statut == 'CONCORDANTE' %}
+              {% if ligne.statut == 'CONCORDANTE' and ligne.prescription.statut == 'EN_CONTROLE' %}
+                <span class="badge badge-warn" title="La ligne concorde, mais la prescription porte une alerte : elle ne sera pas validée avec la facture.">Concordante · prescription en contrôle</span>
+              {% elif ligne.statut == 'CONCORDANTE' %}
                 <span class="badge badge-ok">Concordante</span>
               {% elif ligne.statut == 'ECART_MONTANT' %}
                 <span class="badge badge-warn">Déclaré {{ ligne.prescription.montant_total|kmf }}</span>

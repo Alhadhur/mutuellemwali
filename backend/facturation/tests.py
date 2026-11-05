@@ -552,3 +552,26 @@ class PrescriptionRejeteeTest(BaseFacturation):
         facture.rapprocher()
 
         self.assertEqual(facture.synthese()["non_facturees"], 0)
+
+
+class PrescriptionEnControleTest(BaseFacturation):
+    """Une ligne concordante ne lève pas l'alerte d'une prescription en
+    contrôle : la validation de la facture la laisse de côté."""
+
+    def test_valider_la_facture_laisse_en_controle_une_prescription_signalee(self):
+        prescription = self.declarer(date(2026, 3, 5), 12000)
+        prescription.changer_statut(StatutPrescription.EN_CONTROLE)
+        autre = self.declarer(date(2026, 3, 6), 8000, numero="ORD-2")
+        facture = self.facture()
+        self.ligne(facture, date(2026, 3, 5), 12000)
+        self.ligne(facture, date(2026, 3, 6), 8000)
+        facture.rapprocher()
+
+        self.assertEqual(facture.lignes_concordantes_en_controle().count(), 1)
+        validees = facture.valider(self.rh)
+
+        self.assertEqual(validees, 1)
+        prescription.refresh_from_db()
+        autre.refresh_from_db()
+        self.assertEqual(prescription.statut, StatutPrescription.EN_CONTROLE)
+        self.assertEqual(autre.statut, StatutPrescription.VALIDEE)
