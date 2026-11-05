@@ -5,6 +5,8 @@ et les rapports parlent la même langue visuelle.
 Réservé à l'écran : les exports CSV gardent des valeurs brutes, exploitables
 dans un tableur.
 """
+from datetime import date, datetime
+
 from django.utils.html import format_html
 
 from beneficiaires.models import Agent, AyantDroit, StatutVerification
@@ -45,6 +47,17 @@ def milliers(nombre):
     if isinstance(nombre, bool) or not isinstance(nombre, int):
         return nombre
     return f"{nombre:,}".replace(",", " ")
+
+
+def cellule(valeur):
+    """Valeur d'une cellule de tableau à l'écran : entier avec séparateur de
+    milliers, date au format court (« 06/10/2026 », qui ne se coupe pas),
+    le reste tel quel."""
+    if isinstance(valeur, datetime):
+        return f"{valeur:%d/%m/%Y %H:%M}"
+    if isinstance(valeur, date):
+        return f"{valeur:%d/%m/%Y}"
+    return milliers(valeur)
 
 
 def kmf(montant):

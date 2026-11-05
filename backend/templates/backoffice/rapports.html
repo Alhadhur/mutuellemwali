@@ -81,7 +81,7 @@
           <thead><tr>{% for colonne in tableau.colonnes %}<th>{{ colonne }}</th>{% endfor %}</tr></thead>
           <tbody>
             {% for ligne in tableau.lignes %}
-              <tr>{% for cellule in ligne %}<td>{{ cellule|milliers }}</td>{% endfor %}</tr>
+              <tr>{% for cellule in ligne %}<td>{{ cellule|cellule }}</td>{% endfor %}</tr>
             {% endfor %}
           </tbody>
         </table>

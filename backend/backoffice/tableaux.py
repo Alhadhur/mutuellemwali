@@ -7,8 +7,12 @@ parti pris que le menu latéral et que les listes du back-office.
 from dataclasses import dataclass
 from typing import Callable
 
+from django.utils.html import format_html
+
 from anomalies import services
 from rapports import services as rapports
+
+from .affichage import milliers
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,15 @@ class Tableau:
     # pertinence côté source) et renvoie à l'export pour la liste complète.
     # L'export, lui, ignore toujours cette limite — voir RapportsView.
     limite_ecran: int | None = None
+    # Colonnes de l'écran, quand celles de l'export sont trop nombreuses pour
+    # tenir dans la fenêtre : regroupées deux à deux (l'info principale, le
+    # détail en gris dessous). L'export garde toujours `colonnes`, une valeur
+    # par colonne, exploitable dans un tableur.
+    colonnes_ecran: tuple[tuple[str, object], ...] | None = None
+
+    @property
+    def colonnes_affichees(self):
+        return self.colonnes_ecran or self.colonnes
 
     def lignes(self, debut, fin):
         return self.source(debut, fin) if self.suit_la_periode else self.source()
@@ -58,6 +71,30 @@ TABLEAUX: tuple[Tableau, ...] = (
             ("Réclamé", "montant_reclame"),
             ("Réclamé attendu", "montant_reclame_attendu"),
             ("Écart de taux", "ecart_taux"),
+            ("Anomalie", "get_statut_display"),
+        ),
+        colonnes_ecran=(
+            (
+                "Facture",
+                lambda o: format_html(
+                    '{}<span class="sous-ligne">{}</span>', o.facture.numero, o.facture.prestataire.nom
+                ),
+            ),
+            ("Date du soin", "date_soin"),
+            (
+                "Agent / bénéficiaire",
+                lambda o: format_html('{}<span class="sous-ligne">{}</span>', o.matricule, o.nom_beneficiaire),
+            ),
+            ("Nature déclarée", "nature"),
+            ("Coût facturé", "montant_soin"),
+            (
+                "Réclamé",
+                lambda o: format_html(
+                    '{}<span class="sous-ligne insecable">attendu {}</span>',
+                    milliers(o.montant_reclame),
+                    milliers(o.montant_reclame_attendu),
+                ),
+            ),
             ("Anomalie", "get_statut_display"),
         ),
     ),

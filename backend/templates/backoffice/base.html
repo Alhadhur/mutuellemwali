@@ -174,7 +174,13 @@
   /* Les tableaux d'anomalies ont beaucoup de colonnes : on fait défiler le
      tableau plutôt que la page entière. */
   .tableau-defilant { overflow-x:auto; }
-  .tableau-defilant table { min-width:100%; white-space:nowrap; }
+  /* Retour à la ligne permis : un motif d'alerte ou un nom long allonge la
+     ligne au lieu d'étirer tout le tableau hors de la fenêtre. Montants
+     (filtre kmf / milliers), dates et pastilles restent insécables. Le
+     défilement ne sert plus que de filet sur un très petit écran. */
+  .tableau-defilant table { min-width:100%; }
+  .tableau-defilant th, .tableau-defilant td { padding:10px 12px; }
+  .badge.badge-long { white-space:normal; }
   .tableau-compact table { white-space:normal; }
   .tableau-compact th, .tableau-compact td { padding:10px 12px; }
   .tableau-compact td:last-child { white-space:nowrap; }

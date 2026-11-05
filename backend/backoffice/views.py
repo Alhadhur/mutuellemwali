@@ -2121,9 +2121,9 @@ class AnomaliesView(AccesBackoffice, TemplateView):
                 "titre": tableau.titre,
                 "description": tableau.description,
                 "suit_la_periode": tableau.suit_la_periode,
-                "colonnes": [libelle for libelle, _ in tableau.colonnes],
+                "colonnes": [libelle for libelle, _ in tableau.colonnes_affichees],
                 "lignes": [
-                    [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes]
+                    [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes_affichees]
                     for objet in tableau.lignes(debut, fin)
                 ],
             }
@@ -2218,9 +2218,9 @@ class RapportsView(AccesBackoffice, TemplateView):
                     "titre": tableau.titre,
                     "description": tableau.description,
                     "suit_la_periode": tableau.suit_la_periode,
-                    "colonnes": [libelle for libelle, _ in tableau.colonnes],
+                    "colonnes": [libelle for libelle, _ in tableau.colonnes_affichees],
                     "lignes": [
-                        [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes]
+                        [exports.valeur(objet, extracteur) for _, extracteur in tableau.colonnes_affichees]
                         for objet in lignes_affichees
                     ],
                     "nombre_total": nombre_total,
