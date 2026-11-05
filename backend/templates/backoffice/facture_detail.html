@@ -43,6 +43,15 @@
   <div class="kpi"><div class="value" style="color:{% if synthese.ecarts_taux %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.ecarts_taux }}</div><div class="label">Taux mal appliqué</div></div>
   <div class="kpi"><div class="value" style="color:{% if synthese.sans_prescription %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.sans_prescription }}</div><div class="label">Facturées sans prescription</div></div>
   <div class="kpi"><div class="value" style="color:{% if synthese.non_facturees %}var(--danger){% else %}var(--ok){% endif %};">{{ synthese.non_facturees }}</div><div class="label">Déclarées non facturées</div></div>
+  {% if synthese.agents_inconnus %}
+    <div class="kpi"><div class="value" style="color:var(--danger);">{{ synthese.agents_inconnus }}</div><div class="label">Matricules inconnus</div></div>
+  {% endif %}
+  {% if synthese.beneficiaires_differents %}
+    <div class="kpi"><div class="value" style="color:var(--danger);">{{ synthese.beneficiaires_differents }}</div><div class="label">Bénéficiaires différents</div></div>
+  {% endif %}
+  {% if synthese.natures_non_couvertes %}
+    <div class="kpi"><div class="value" style="color:var(--danger);">{{ synthese.natures_non_couvertes }}</div><div class="label">Natures non couvertes</div></div>
+  {% endif %}
   {% if synthese.prescriptions_rejetees %}
     <div class="kpi"><div class="value" style="color:var(--danger);">{{ synthese.prescriptions_rejetees }}</div><div class="label">Facturées alors que rejetées</div></div>
   {% endif %}

@@ -575,3 +575,21 @@ class PrescriptionEnControleTest(BaseFacturation):
         autre.refresh_from_db()
         self.assertEqual(prescription.statut, StatutPrescription.EN_CONTROLE)
         self.assertEqual(autre.statut, StatutPrescription.VALIDEE)
+
+
+class ResumeRapprochementTest(BaseFacturation):
+    def test_le_resume_cite_toutes_les_categories_et_leur_somme_fait_le_total(self):
+        self.declarer(date(2026, 3, 5), 12000)
+        facture = self.facture()
+        self.ligne(facture, date(2026, 3, 5), 12000)
+        self.ligne(facture, date(2026, 3, 6), 9000)
+        self.ligne(facture, date(2026, 3, 7), 5000, matricule="INCONNU")
+        facture.rapprocher()
+
+        resume = facture.resume_rapprochement()
+
+        self.assertEqual(
+            resume,
+            "3 ligne(s) — 1 concordante(s), 1 sans prescription, 1 matricule(s) inconnu(s). "
+            "Côté mutuelle : 0 prescription(s) déclarée(s) non facturée(s).",
+        )

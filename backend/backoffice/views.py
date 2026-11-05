@@ -1543,14 +1543,7 @@ class FactureImport(AccesModification, TemplateView):
             messages.error(request, "Le fichier a changé entre l'analyse et la confirmation : réimportez-le.")
             return redirect("backoffice:factures")
 
-        synthese = facture.synthese()
-        messages.success(
-            request,
-            f"Facture {facture.numero} importée ({importees} ligne(s)) : "
-            f"{synthese['concordantes']} concordante(s), {synthese['ecarts_montant']} écart(s) de montant, "
-            f"{synthese['ecarts_taux']} taux mal appliqué(s), {synthese['sans_prescription']} sans prescription, "
-            f"{synthese['non_facturees']} prescription(s) non facturée(s).",
-        )
+        messages.success(request, f"Facture {facture.numero} importée : {facture.resume_rapprochement()}")
         return redirect("backoffice:facture_detail", pk=facture.pk)
 
 
@@ -1563,14 +1556,7 @@ class FactureRapprocher(AccesModification, View):
             messages.error(request, "Cette facture est validée : son rapprochement ne peut plus être relancé.")
             return redirect("backoffice:facture_detail", pk=pk)
         facture.rapprocher()
-        synthese = facture.synthese()
-        messages.success(
-            request,
-            f"Rapprochement effectué : {synthese['concordantes']} ligne(s) concordante(s), "
-            f"{synthese['ecarts_montant']} écart(s) de montant, "
-            f"{synthese['sans_prescription']} sans prescription, "
-            f"{synthese['non_facturees']} prescription(s) non facturée(s).",
-        )
+        messages.success(request, f"Rapprochement effectué : {facture.resume_rapprochement()}")
         return redirect("backoffice:facture_detail", pk=pk)
 
 

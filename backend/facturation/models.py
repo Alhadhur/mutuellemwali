@@ -201,9 +201,32 @@ class Facture(models.Model):
             "sans_prescription": lignes.filter(statut=StatutLigne.SANS_PRESCRIPTION).count(),
             "agents_inconnus": lignes.filter(statut=StatutLigne.AGENT_INCONNU).count(),
             "prescriptions_rejetees": lignes.filter(statut=StatutLigne.PRESCRIPTION_REJETEE).count(),
+            "natures_non_couvertes": lignes.filter(statut=StatutLigne.NATURE_NON_COUVERTE).count(),
+            "beneficiaires_differents": lignes.filter(statut=StatutLigne.BENEFICIAIRE_DIFFERENT).count(),
             "non_facturees": self.prescriptions_non_facturees().count(),
             "ecart_total": self.ecart_total,
         }
+
+    def resume_rapprochement(self):
+        """Résultat du rapprochement en une phrase, toutes catégories de
+        lignes comprises (seules celles qui comptent au moins une ligne sont
+        citées) : leur somme fait le nombre de lignes de la facture."""
+        synthese = self.synthese()
+        categories = [
+            (synthese["concordantes"], "concordante(s)"),
+            (synthese["ecarts_montant"], "écart(s) de montant"),
+            (synthese["ecarts_taux"], "taux mal appliqué(s)"),
+            (synthese["sans_prescription"], "sans prescription"),
+            (synthese["agents_inconnus"], "matricule(s) inconnu(s)"),
+            (synthese["beneficiaires_differents"], "bénéficiaire(s) différent(s)"),
+            (synthese["natures_non_couvertes"], "nature(s) non couverte(s) par ce prestataire"),
+            (synthese["prescriptions_rejetees"], "prescription(s) rejetée(s) facturée(s)"),
+        ]
+        detail = ", ".join(f"{nombre} {libelle}" for nombre, libelle in categories if nombre)
+        return (
+            f"{synthese['nombre_lignes']} ligne(s) — {detail or 'aucune ligne'}. "
+            f"Côté mutuelle : {synthese['non_facturees']} prescription(s) déclarée(s) non facturée(s)."
+        )
 
     def lignes_concordantes_en_controle(self):
         """Lignes concordantes que la validation de la facture laisse de
