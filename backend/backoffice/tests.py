@@ -1968,3 +1968,98 @@ class PrescriptionDepuisLigneFactureTest(BaseBackoffice):
         reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
 
         self.assertNotContains(reponse, "Créer la prescription")
+
+
+class ValidationLignesFactureTest(BaseBackoffice):
+    """Valider les lignes concordantes — en lot ou une par une — sans
+    clôturer la facture."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.facture = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-7", mois=3, annee=2026, montant_total_declare=24000
+        )
+        self.prescriptions = []
+        for jour in (5, 6, 7):
+            self.prescriptions.append(
+                Prescription.objects.create(
+                    agent=self.agent, prestataire=self.prestataire, montant_total=10000 + jour,
+                    date_emission=date(2026, 3, jour),
+                )
+            )
+            LigneFacture.objects.create(
+                facture=self.facture, date_soin=date(2026, 3, jour), matricule="A0001",
+                nom_beneficiaire="Fatima Zahra", montant_soin=10000 + jour,
+                montant_reclame=round((10000 + jour) * 0.8),
+            )
+        # Une ligne sans prescription, qui doit rester à traiter.
+        LigneFacture.objects.create(
+            facture=self.facture, date_soin=date(2026, 3, 20), matricule="A0001",
+            nom_beneficiaire="Fatima Zahra", montant_soin=5000, montant_reclame=4000,
+        )
+        self.prescriptions[2].changer_statut(StatutPrescription.EN_CONTROLE)
+        self.facture.rapprocher()
+        self.detail = reverse("backoffice:facture_detail", args=[self.facture.pk])
+
+    def statuts(self):
+        return [Prescription.objects.get(pk=p.pk).statut for p in self.prescriptions]
+
+    def test_valider_les_concordantes_laisse_la_facture_ouverte(self):
+        reponse = self.client.post(reverse("backoffice:facture_valider_concordantes", args=[self.facture.pk]))
+
+        self.assertRedirects(reponse, self.detail)
+        self.assertEqual(
+            self.statuts(),
+            [StatutPrescription.VALIDEE, StatutPrescription.VALIDEE, StatutPrescription.EN_CONTROLE],
+        )
+        self.facture.refresh_from_db()
+        self.assertEqual(self.facture.statut, StatutFacture.RAPPROCHEE)
+        self.assertContains(self.client.get(self.detail), "Créer la prescription")
+
+    def test_valider_une_seule_ligne(self):
+        ligne = self.facture.lignes.get(date_soin=date(2026, 3, 6))
+
+        self.client.post(reverse("backoffice:facture_ligne_valider", args=[self.facture.pk, ligne.pk]))
+
+        self.assertEqual(
+            self.statuts(),
+            [StatutPrescription.SOUMISE, StatutPrescription.VALIDEE, StatutPrescription.EN_CONTROLE],
+        )
+        trace = self.prescriptions[1].historique.last()
+        self.assertEqual(trace.commentaire, "Confirmée par la facture F-7 du prestataire.")
+        self.assertEqual(trace.utilisateur, self.rh)
+
+    def test_une_ligne_d_une_autre_facture_est_refusee(self):
+        autre = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-8", mois=4, annee=2026, montant_total_declare=0
+        )
+        ligne = self.facture.lignes.get(date_soin=date(2026, 3, 5))
+
+        reponse = self.client.post(reverse("backoffice:facture_ligne_valider", args=[autre.pk, ligne.pk]))
+
+        self.assertEqual(reponse.status_code, 302)  # facture « Reçue » : refusée avant même la ligne
+        self.assertEqual(self.statuts()[0], StatutPrescription.SOUMISE)
+
+    def test_la_fiche_propose_les_boutons_et_le_nombre_a_valider(self):
+        reponse = self.client.get(self.detail)
+
+        self.assertContains(reponse, "Valider les lignes concordantes (2)")
+        self.assertContains(reponse, "Concordante · prescription en contrôle")
+        self.assertEqual(reponse.content.decode().count('title="Valider la prescription de cette ligne"'), 2)
+
+    def test_une_facture_validee_ne_se_rouvre_pas_au_rapprochement(self):
+        self.facture.valider(self.rh)
+
+        self.client.post(reverse("backoffice:facture_rapprocher", args=[self.facture.pk]))
+
+        self.facture.refresh_from_db()
+        self.assertEqual(self.facture.statut, StatutFacture.VALIDEE)
+        self.assertNotContains(self.client.get(self.detail), "Relancer le rapprochement")
+
+    def test_la_direction_ne_peut_pas_valider(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.post(reverse("backoffice:facture_valider_concordantes", args=[self.facture.pk]))
+
+        self.assertEqual(reponse.status_code, 403)

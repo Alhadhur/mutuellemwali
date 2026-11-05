@@ -212,32 +212,45 @@ class Facture(models.Model):
             statut=StatutLigne.CONCORDANTE, prescription__statut=StatutPrescription.EN_CONTROLE
         )
 
-    def valider(self, utilisateur):
-        """Le service mutuelle valide la facture ; les prescriptions dont la
-        ligne concorde exactement passent alors en « Validée », avec la
-        référence de la facture dans leur historique.
+    def lignes_concordantes_a_valider(self):
+        """Lignes concordantes dont la prescription attend encore une
+        décision : ce que « Valider » (ligne ou lot) fera passer en
+        « Validée »."""
+        return self.lignes.filter(
+            statut=StatutLigne.CONCORDANTE, prescription__statut=StatutPrescription.SOUMISE
+        ).select_related("prescription")
 
-        Les lignes en écart ne valident rien : elles restent à arbitrer une
-        par une. Une prescription rejetée n'est jamais revalidée par une
-        facture, même si elle a été rejetée après le rapprochement : le rejet
-        est une décision de la mutuelle, la facture ne la renverse pas.
+    def valider_concordantes(self, utilisateur, lignes=None):
+        """Valide les prescriptions des lignes concordantes — toutes, ou
+        seulement `lignes` — sans clôturer la facture : le reste (écarts,
+        lignes sans prescription) peut continuer d'être traité, puis validé
+        à son tour quand il concorde.
 
-        Une prescription « En contrôle » n'est pas validée non plus, même si
-        sa ligne concorde : elle porte une alerte (doublon, agent suspendu,
-        couverture…) que la facture ne lève pas. Elle se traite sur sa fiche
-        (voir lignes_concordantes_en_controle).
-        """
+        Seules les prescriptions encore « Soumise » sont concernées : une
+        prescription rejetée n'est jamais revalidée par une facture (le rejet
+        est une décision de la mutuelle, la facture ne la renverse pas), et
+        une prescription « En contrôle » porte une alerte (doublon, agent
+        suspendu, couverture…) que la facture ne lève pas — elle se traite
+        sur sa fiche (voir lignes_concordantes_en_controle)."""
+        a_valider = self.lignes_concordantes_a_valider()
+        if lignes is not None:
+            a_valider = a_valider.filter(pk__in=[ligne.pk for ligne in lignes])
         validees = 0
-        for ligne in self.lignes.filter(statut=StatutLigne.CONCORDANTE).select_related("prescription"):
-            prescription = ligne.prescription
-            if prescription and prescription.statut == StatutPrescription.SOUMISE:
-                prescription.changer_statut(
-                    StatutPrescription.VALIDEE,
-                    utilisateur=utilisateur,
-                    commentaire=f"Confirmée par la facture {self.numero} du prestataire.",
-                )
-                validees += 1
+        for ligne in a_valider:
+            ligne.prescription.changer_statut(
+                StatutPrescription.VALIDEE,
+                utilisateur=utilisateur,
+                commentaire=f"Confirmée par la facture {self.numero} du prestataire.",
+            )
+            validees += 1
+        return validees
 
+    def valider(self, utilisateur):
+        """Le service mutuelle valide et clôt la facture : les prescriptions
+        des lignes concordantes encore à valider passent en « Validée »
+        (mêmes règles que valider_concordantes), puis la facture est
+        verrouillée. Les lignes en écart ne valident rien."""
+        validees = self.valider_concordantes(utilisateur)
         self.statut = StatutFacture.VALIDEE
         self.validee_par = utilisateur
         self.date_validation = timezone.now()

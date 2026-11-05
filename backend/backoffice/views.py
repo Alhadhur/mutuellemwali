@@ -1407,6 +1407,7 @@ class FactureDetail(AccesBackoffice, DetailView):
         contexte["lignes"] = self.object.lignes.select_related("prescription")
         contexte["non_facturees"] = self.object.prescriptions_non_facturees()
         contexte["synthese"] = self.object.synthese()
+        contexte["nombre_a_valider"] = self.object.lignes_concordantes_a_valider().count()
         contexte["peut_modifier"] = self.request.user.role == Role.RH or self.request.user.is_superuser
         # Suppression réservée au superuser (voir FactureSupprimer) : RH garde
         # la création/modification, pas l'effacement d'une pièce déjà soumise.
@@ -1556,6 +1557,11 @@ class FactureImport(AccesModification, TemplateView):
 class FactureRapprocher(AccesModification, View):
     def post(self, request, pk):
         facture = get_object_or_404(Facture, pk=pk)
+        if facture.statut == StatutFacture.VALIDEE:
+            # Le rapprochement repasse la facture en « Rapprochée » : il
+            # rouvrirait une facture déjà close.
+            messages.error(request, "Cette facture est validée : son rapprochement ne peut plus être relancé.")
+            return redirect("backoffice:facture_detail", pk=pk)
         facture.rapprocher()
         synthese = facture.synthese()
         messages.success(
@@ -1637,6 +1643,32 @@ class FactureValider(AccesModification, View):
                 f"{en_controle} ligne(s) concordante(s) non validée(s) : leur prescription est « En contrôle » "
                 "(doublon, couverture…). Traitez-les sur la fiche de chaque prescription.",
             )
+        return redirect("backoffice:facture_detail", pk=pk)
+
+
+class FactureValiderConcordantes(AccesModification, View):
+    """Valide les prescriptions des lignes concordantes — toutes, ou une
+    seule ligne (`ligne_pk`) — sans clôturer la facture, pour avancer
+    pendant que le reste (écarts, lignes sans prescription) est traité."""
+
+    def post(self, request, pk, ligne_pk=None):
+        facture = get_object_or_404(Facture, pk=pk)
+        if facture.statut != StatutFacture.RAPPROCHEE:
+            messages.error(
+                request,
+                "Validation impossible : la facture doit être rapprochée, et ni validée ni contestée.",
+            )
+            return redirect("backoffice:facture_detail", pk=pk)
+
+        lignes = None
+        if ligne_pk is not None:
+            lignes = [get_object_or_404(LigneFacture, pk=ligne_pk, facture=facture)]
+        validees = facture.valider_concordantes(request.user, lignes)
+
+        if validees:
+            messages.success(request, f"{validees} prescription(s) validée(s), confirmée(s) par la facture.")
+        else:
+            messages.error(request, "Aucune prescription à valider : déjà validée, rejetée ou en contrôle.")
         return redirect("backoffice:facture_detail", pk=pk)
 
 

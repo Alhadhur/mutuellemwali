@@ -9,10 +9,20 @@
   <a class="btn btn-secondaire" href="{% url 'backoffice:factures' %}">← Retour à la liste</a>
   {% if peut_modifier %}
     <div style="display:flex;gap:8px;">
-      <form method="post" action="{% url 'backoffice:facture_rapprocher' facture.pk %}">
-        {% csrf_token %}
-        <button class="btn btn-secondaire" type="submit">Relancer le rapprochement</button>
-      </form>
+      {% if facture.statut != 'VALIDEE' %}
+        <form method="post" action="{% url 'backoffice:facture_rapprocher' facture.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-secondaire" type="submit">Relancer le rapprochement</button>
+        </form>
+      {% endif %}
+      {% if facture.statut == 'RAPPROCHEE' and nombre_a_valider %}
+        <form method="post" action="{% url 'backoffice:facture_valider_concordantes' facture.pk %}"
+              onsubmit="return confirm('Valider les {{ nombre_a_valider }} prescription(s) des lignes concordantes ? La facture reste ouverte pour traiter le reste.');">
+          {% csrf_token %}
+          <button class="btn btn-secondaire" type="submit"
+                  title="Valide les prescriptions des lignes concordantes sans clôturer la facture">Valider les lignes concordantes ({{ nombre_a_valider }})</button>
+        </form>
+      {% endif %}
       {% if facture.statut != 'VALIDEE' %}
         <form method="post" action="{% url 'backoffice:facture_valider' facture.pk %}">
           {% csrf_token %}
@@ -91,7 +101,7 @@
 <section>
   <h2>Lignes de la facture ({{ synthese.nombre_lignes }})</h2>
   {% if lignes %}
-    <div class="tableau-defilant">
+    <div class="tableau-defilant tableau-compact">
       <table>
         <tr><th>Date</th><th>Matricule</th><th>Bénéficiaire</th><th>Nature</th><th>Coût du soin</th><th>Réclamé</th><th>Rapprochement</th><th></th></tr>
         {% for ligne in lignes %}
@@ -105,6 +115,8 @@
             <td>
               {% if ligne.statut == 'CONCORDANTE' and ligne.prescription.statut == 'EN_CONTROLE' %}
                 <span class="badge badge-warn" title="La ligne concorde, mais la prescription porte une alerte : elle ne sera pas validée avec la facture.">Concordante · prescription en contrôle</span>
+              {% elif ligne.statut == 'CONCORDANTE' and ligne.prescription.statut == 'VALIDEE' %}
+                <span class="badge badge-ok">Concordante · validée</span>
               {% elif ligne.statut == 'CONCORDANTE' %}
                 <span class="badge badge-ok">Concordante</span>
               {% elif ligne.statut == 'ECART_MONTANT' %}
@@ -127,6 +139,12 @@
             </td>
             <td style="text-align:right;">
               {% if ligne.prescription %}
+                {% if ligne.statut == 'CONCORDANTE' and ligne.prescription.statut == 'SOUMISE' and peut_modifier and facture.statut == 'RAPPROCHEE' %}
+                  <form method="post" action="{% url 'backoffice:facture_ligne_valider' facture.pk ligne.pk %}" style="display:inline">
+                    {% csrf_token %}
+                    <button class="btn btn-ok btn-petit" type="submit" title="Valider la prescription de cette ligne">Valider</button>
+                  </form>
+                {% endif %}
                 <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:prescription_detail' ligne.prescription.pk %}">Prescription</a>
               {% elif ligne.statut == 'SANS_PRESCRIPTION' and peut_modifier and facture.statut != 'VALIDEE' %}
                 <a class="btn btn-petit" href="{% url 'backoffice:prescription_creer' %}?ligne={{ ligne.pk }}"
