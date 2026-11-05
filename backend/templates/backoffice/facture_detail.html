@@ -146,7 +146,7 @@
                 <span class="badge badge-muted">À rapprocher</span>
               {% endif %}
             </td>
-            <td style="text-align:right;">
+            <td class="cellule-actions"><div class="actions-ligne">
               {% if ligne.prescription %}
                 {% if ligne.statut == 'CONCORDANTE' and ligne.prescription.statut == 'SOUMISE' and peut_modifier and facture.statut == 'RAPPROCHEE' %}
                   <form method="post" action="{% url 'backoffice:facture_ligne_valider' facture.pk ligne.pk %}" style="display:inline">
@@ -159,7 +159,16 @@
                 <a class="btn btn-petit" href="{% url 'backoffice:prescription_creer' %}?ligne={{ ligne.pk }}"
                    title="Saisir l'ordonnance correspondante, préremplie depuis cette ligne">Créer la prescription</a>
               {% endif %}
-            </td>
+              {% if peut_modifier and not ligne.motif_verrouillage %}
+                  <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:facture_ligne_modifier' facture.pk ligne.pk %}"
+                     title="Corriger une erreur de saisie sur cette ligne">Corriger</a>
+                  <form method="post" action="{% url 'backoffice:facture_ligne_supprimer' facture.pk ligne.pk %}" style="display:inline"
+                        onsubmit="return confirm('Supprimer la ligne du {{ ligne.date_soin|date:"d/m/Y" }} ({{ ligne.nom_beneficiaire|escapejs }}) ?');">
+                    {% csrf_token %}
+                    <button class="btn btn-danger btn-petit" type="submit" title="Supprimer cette ligne saisie par erreur">Supprimer</button>
+                  </form>
+              {% endif %}
+            </div></td>
           </tr>
         {% endfor %}
       </table>

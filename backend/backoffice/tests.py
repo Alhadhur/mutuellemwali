@@ -1142,6 +1142,157 @@ class FactureLigneAjouterTest(BaseBackoffice):
         self.assertEqual(self.facture.lignes.count(), 1)
 
 
+class FactureLigneCorrigerTest(BaseBackoffice):
+    """Une erreur de saisie se corrige ou se supprime tant que la ligne n'a
+    pas servi à une décision (voir LigneFacture.motif_verrouillage)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.facture = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=10000
+        )
+        self.ligne = LigneFacture.objects.create(
+            facture=self.facture,
+            date_soin=date(2026, 1, 5),
+            matricule=self.agent.matricule,
+            nom_beneficiaire="Fatma Zahra",
+            nature="Consultation",
+            montant_soin=10000,
+            montant_reclame=8000,
+        )
+
+    def _url(self, nom, ligne=None):
+        return reverse(f"backoffice:{nom}", args=[self.facture.pk, (ligne or self.ligne).pk])
+
+    def _donnees(self, **extra):
+        donnees = {
+            "date_soin": "2026-01-06",
+            "matricule": self.agent.matricule.lower(),
+            "nom_beneficiaire": "Fatima Zahra",
+            "nature": "Consultation",
+            "montant_soin": "12000",
+            "montant_reclame": "9000",
+        }
+        donnees.update(extra)
+        return donnees
+
+    def test_le_formulaire_de_correction_est_prerempli(self):
+        reponse = self.client.get(self._url("facture_ligne_modifier"))
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, "Fatma Zahra")
+        self.assertContains(reponse, 'value="10000"')
+
+    def test_la_correction_enregistre_les_deux_montants_tels_quels(self):
+        """Pas de recalcul par le taux : un taux mal appliqué par le
+        prestataire doit rester visible au rapprochement."""
+        reponse = self.client.post(self._url("facture_ligne_modifier"), self._donnees())
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.ligne.refresh_from_db()
+        self.assertEqual(self.ligne.nom_beneficiaire, "Fatima Zahra")
+        self.assertEqual(self.ligne.date_soin, date(2026, 1, 6))
+        self.assertEqual(self.ligne.montant_soin, 12000)
+        self.assertEqual(self.ligne.montant_reclame, 9000)
+        self.assertEqual(self.ligne.matricule, self.agent.matricule.upper())
+
+    def test_la_ligne_corrigee_repart_a_rapprocher(self):
+        self.ligne.statut = StatutLigne.ECART_MONTANT
+        self.ligne.prescription = self.prescription
+        self.ligne.save()
+
+        self.client.post(self._url("facture_ligne_modifier"), self._donnees())
+
+        self.ligne.refresh_from_db()
+        self.assertEqual(self.ligne.statut, StatutLigne.A_RAPPROCHER)
+        self.assertIsNone(self.ligne.prescription)
+
+    def test_une_nature_importee_hors_liste_reste_proposee(self):
+        self.ligne.nature = "Radio thorax"
+        self.ligne.save()
+
+        reponse = self.client.post(self._url("facture_ligne_modifier"), self._donnees(nature="Radio thorax"))
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.ligne.refresh_from_db()
+        self.assertEqual(self.ligne.nature, "Radio thorax")
+
+    def test_la_suppression_retire_la_ligne(self):
+        reponse = self.client.post(self._url("facture_ligne_supprimer"))
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.assertFalse(LigneFacture.objects.filter(pk=self.ligne.pk).exists())
+
+    def test_la_fiche_propose_corriger_et_supprimer(self):
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertContains(reponse, self._url("facture_ligne_modifier"))
+        self.assertContains(reponse, self._url("facture_ligne_supprimer"))
+
+    def test_une_facture_validee_verrouille_ses_lignes(self):
+        self.facture.statut = StatutFacture.VALIDEE
+        self.facture.save()
+
+        self.client.post(self._url("facture_ligne_modifier"), self._donnees())
+        self.client.post(self._url("facture_ligne_supprimer"))
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.ligne.refresh_from_db()
+        self.assertEqual(self.ligne.nom_beneficiaire, "Fatma Zahra")
+        self.assertNotContains(reponse, self._url("facture_ligne_modifier"))
+        self.assertRedirects(
+            self.client.get(self._url("facture_ligne_modifier")),
+            reverse("backoffice:facture_detail", args=[self.facture.pk]),
+        )
+
+    def test_une_ligne_ayant_valide_sa_prescription_est_verrouillee(self):
+        self.prescription.statut = StatutPrescription.VALIDEE
+        self.prescription.save()
+        self.ligne.statut = StatutLigne.CONCORDANTE
+        self.ligne.prescription = self.prescription
+        self.ligne.save()
+
+        self.client.post(self._url("facture_ligne_supprimer"))
+
+        self.assertTrue(LigneFacture.objects.filter(pk=self.ligne.pk).exists())
+        self.assertIn("ORD-1", self.ligne.motif_verrouillage())
+
+    def test_une_ligne_d_une_autre_facture_renvoie_404(self):
+        autre = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-2", mois=1, annee=2026, montant_total_declare=0
+        )
+        url = reverse("backoffice:facture_ligne_supprimer", args=[autre.pk, self.ligne.pk])
+
+        self.assertEqual(self.client.post(url).status_code, 404)
+        self.assertTrue(LigneFacture.objects.filter(pk=self.ligne.pk).exists())
+
+    def test_la_direction_ne_peut_ni_corriger_ni_supprimer(self):
+        self.client.force_login(self.direction)
+
+        self.assertEqual(self.client.get(self._url("facture_ligne_modifier")).status_code, 403)
+        self.assertEqual(self.client.post(self._url("facture_ligne_supprimer")).status_code, 403)
+        self.assertTrue(LigneFacture.objects.filter(pk=self.ligne.pk).exists())
+
+    def test_on_n_ajoute_plus_de_ligne_a_une_facture_validee(self):
+        self.facture.statut = StatutFacture.VALIDEE
+        self.facture.save()
+
+        self.client.post(
+            reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]),
+            {
+                "date_soin": "2026-01-05",
+                "matricule": self.agent.matricule,
+                "nom_beneficiaire": "X",
+                "nature": "Consultation",
+                "montant": "8000",
+                "montant_colonne": "reclame",
+            },
+        )
+
+        self.assertEqual(self.facture.lignes.count(), 1)
+
+
 class FactureListeFiltresTest(BaseBackoffice):
     def setUp(self):
         super().setUp()

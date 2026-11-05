@@ -1404,7 +1404,7 @@ class FactureDetail(AccesBackoffice, DetailView):
 
     def get_context_data(self, **kwargs):
         contexte = super().get_context_data(**kwargs)
-        contexte["lignes"] = self.object.lignes.select_related("prescription")
+        contexte["lignes"] = self.object.lignes.select_related("prescription", "facture")
         contexte["non_facturees"] = self.object.prescriptions_non_facturees()
         contexte["synthese"] = self.object.synthese()
         contexte["nombre_a_valider"] = self.object.lignes_concordantes_a_valider().count()
@@ -1574,6 +1574,9 @@ class FactureLigneAjouter(AccesModification, View):
         from facturation.management.commands.importer_facture import LigneInvalide, _cout_total, _part_mutuelle
 
         facture = get_object_or_404(Facture, pk=pk)
+        if facture.statut == StatutFacture.VALIDEE:
+            messages.error(request, "Cette facture est validée : on ne peut plus y ajouter de ligne.")
+            return redirect("backoffice:facture_detail", pk=pk)
         form = forms.LigneFactureForm(request.POST, prestataire=facture.prestataire)
         if not form.is_valid():
             erreurs = "; ".join(f"{champ} : {', '.join(liste)}" for champ, liste in form.errors.items())
@@ -1603,6 +1606,71 @@ class FactureLigneAjouter(AccesModification, View):
             montant_reclame=montant_reclame,
         )
         messages.success(request, "Ligne ajoutée — pensez à relancer le rapprochement.")
+        return redirect("backoffice:facture_detail", pk=pk)
+
+
+class LigneFactureMixin:
+    """Ligne désignée par l'URL, toujours rattachée à sa facture — un pk de
+    ligne d'une autre facture renvoie 404 plutôt que d'agir ailleurs."""
+
+    def get_ligne(self):
+        return get_object_or_404(
+            LigneFacture.objects.select_related("facture__prestataire", "prescription"),
+            pk=self.kwargs["ligne_pk"],
+            facture_id=self.kwargs["pk"],
+        )
+
+    def refus(self, ligne, action):
+        motif = ligne.motif_verrouillage()
+        if motif:
+            messages.error(self.request, f"Impossible de {action} cette ligne : {motif}.")
+        return motif
+
+
+class FactureLigneModifier(LigneFactureMixin, FormulaireBase, UpdateView):
+    """Corrige une erreur de saisie (ligne ajoutée à la main ou importée).
+
+    La ligne repart « À rapprocher » : même logique que l'ajout, le
+    rapprochement reste un geste explicite (voir FactureLigneAjouter)."""
+
+    form_class = forms.LigneFactureModifierForm
+    titre = "Corriger une ligne de facture"
+
+    def get_object(self, queryset=None):
+        return self.get_ligne()
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and self.test_func():
+            ligne = self.get_ligne()
+            if self.refus(ligne, "modifier"):
+                return redirect("backoffice:facture_detail", pk=ligne.facture_id)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_success_url(self):
+        return reverse("backoffice:facture_detail", args=[self.object.facture_id])
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["url_retour"] = self.get_success_url()
+        contexte["titre"] = f"{self.titre} — {self.object.facture.numero}"
+        return contexte
+
+    def form_valid(self, form):
+        form.instance.remettre_a_rapprocher()
+        self.object = form.save()
+        messages.success(self.request, "Ligne corrigée — relancez le rapprochement pour la contrôler à nouveau.")
+        return redirect(self.get_success_url())
+
+
+class FactureLigneSupprimer(LigneFactureMixin, AccesModification, View):
+    """Retire une ligne saisie par erreur (doublon d'import, mauvaise facture…)."""
+
+    def post(self, request, pk, ligne_pk):
+        ligne = self.get_ligne()
+        if not self.refus(ligne, "supprimer"):
+            description = f"{ligne.date_soin:%d/%m/%Y} — {ligne.matricule} — {ligne.nom_beneficiaire}"
+            ligne.delete()
+            messages.success(request, f"Ligne supprimée ({description}). Relancez le rapprochement si besoin.")
         return redirect("backoffice:facture_detail", pk=pk)
 
 

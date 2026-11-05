@@ -62,6 +62,16 @@ urlpatterns = [
     path("factures/<int:pk>/", views.FactureDetail.as_view(), name="facture_detail"),
     path("factures/<int:pk>/rapprocher/", views.FactureRapprocher.as_view(), name="facture_rapprocher"),
     path("factures/<int:pk>/lignes/ajouter/", views.FactureLigneAjouter.as_view(), name="facture_ligne_ajouter"),
+    path(
+        "factures/<int:pk>/lignes/<int:ligne_pk>/modifier/",
+        views.FactureLigneModifier.as_view(),
+        name="facture_ligne_modifier",
+    ),
+    path(
+        "factures/<int:pk>/lignes/<int:ligne_pk>/supprimer/",
+        views.FactureLigneSupprimer.as_view(),
+        name="facture_ligne_supprimer",
+    ),
     path("factures/<int:pk>/valider/", views.FactureValider.as_view(), name="facture_valider"),
     path(
         "factures/<int:pk>/valider-concordantes/",

@@ -312,6 +312,31 @@ class LigneFacture(models.Model):
     def __str__(self):
         return f"{self.date_soin} — {self.matricule} — {self.montant_soin} KMF"
 
+    def motif_verrouillage(self):
+        """Pourquoi la ligne ne peut plus être corrigée ni supprimée — chaîne
+        vide si elle le peut encore.
+
+        Une facture validée est close : ses lignes sont la trace de la
+        décision. Une ligne concordante dont la prescription est déjà
+        « Validée » a servi de preuve à cette validation (valider_concordantes) :
+        la changer effacerait la justification d'une décision déjà prise.
+        """
+        if self.facture.statut == StatutFacture.VALIDEE:
+            return "la facture est validée"
+        if (
+            self.statut == StatutLigne.CONCORDANTE
+            and self.prescription_id
+            and self.prescription.statut == StatutPrescription.VALIDEE
+        ):
+            return "elle a servi à valider la prescription " + self.prescription.numero_ordonnance
+        return ""
+
+    def remettre_a_rapprocher(self):
+        """Après une correction, l'ancien résultat du rapprochement ne vaut
+        plus : la ligne repart « À rapprocher », sans prescription liée."""
+        self.statut = StatutLigne.A_RAPPROCHER
+        self.prescription = None
+
     @property
     def ecart_montant(self):
         if not self.prescription:

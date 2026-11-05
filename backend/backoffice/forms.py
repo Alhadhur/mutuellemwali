@@ -4,7 +4,7 @@ from django import forms
 
 from accounts.models import Utilisateur
 from beneficiaires.models import Agent, AyantDroit
-from facturation.models import MOIS, Facture
+from facturation.models import MOIS, Facture, LigneFacture
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription
 from prestataires.models import Prestataire, TarifPrestataire
@@ -357,6 +357,38 @@ class LigneFactureForm(forms.Form):
         self.fields["nature"].choices = [("", "— choisir —")] + [
             (nature.libelle, nature.libelle) for nature in natures
         ]
+
+
+class LigneFactureModifierForm(forms.ModelForm):
+    """Corrige une erreur de saisie sur une ligne existante.
+
+    Contrairement à l'ajout (un seul montant, l'autre déduit du taux), les
+    deux montants restent éditables tels qu'écrits sur la facture : déduire
+    l'un de l'autre effacerait en silence un taux mal appliqué par le
+    prestataire, que le rapprochement doit justement signaler."""
+
+    nature = forms.ChoiceField(label="Nature du soin")
+
+    class Meta:
+        model = LigneFacture
+        fields = ["date_soin", "matricule", "nom_beneficiaire", "nature", "montant_soin", "montant_reclame"]
+        labels = {"date_soin": "Date du soin", "nom_beneficiaire": "Bénéficiaire (tel qu'écrit sur la facture)"}
+        widgets = {"date_soin": DateInput}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        prestataire = self.instance.facture.prestataire
+        natures = prestataire.natures_proposees() or NatureSoin.proposables()
+        choix = [(nature.libelle, nature.libelle) for nature in natures]
+        # Une ligne importée par CSV peut porter une nature hors liste : on la
+        # garde proposée pour que corriger un montant n'oblige pas à la changer.
+        actuelle = self.instance.nature
+        if actuelle and actuelle not in {valeur for valeur, _ in choix}:
+            choix.insert(0, (actuelle, actuelle))
+        self.fields["nature"].choices = [("", "— choisir —")] + choix
+
+    def clean_matricule(self):
+        return self.cleaned_data["matricule"].strip().upper()
 
 
 class ParametrageForm(forms.ModelForm):
