@@ -1070,6 +1070,36 @@ class FactureLigneAjouterTest(BaseBackoffice):
         self.assertEqual(ligne.montant_soin, 10000)
         self.assertEqual(ligne.montant_reclame, 8000)
 
+    def test_le_montant_manquant_se_deduit_au_taux_de_la_nature(self):
+        """Tarif détaillé à 50 % pour l'hospitalisation : 8000 réclamés
+        correspondent à un soin de 16000, pas de 10000 (taux général 80 %)."""
+        TarifPrestataire.objects.create(
+            prestataire=self.prestataire,
+            nature_soin=NatureSoin.objects.get(libelle="Hospitalisation"),
+            taux_prise_en_charge=50,
+        )
+
+        self.client.post(
+            reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]),
+            self._donnees(nature="Hospitalisation"),
+        )
+
+        ligne = self.facture.lignes.get()
+        self.assertEqual(ligne.montant_reclame, 8000)
+        self.assertEqual(ligne.montant_soin, 16000)
+
+    def test_la_fiche_fournit_le_taux_de_chaque_nature_pour_l_apercu(self):
+        TarifPrestataire.objects.create(
+            prestataire=self.prestataire,
+            nature_soin=NatureSoin.objects.get(libelle="Hospitalisation"),
+            taux_prise_en_charge=50,
+        )
+
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertEqual(reponse.context["taux_ligne"]["natures"]["Hospitalisation"], 50.0)
+        self.assertContains(reponse, 'id="apercu-montant"')
+
     def test_la_ligne_est_a_rapprocher_par_defaut(self):
         self.client.post(reverse("backoffice:facture_ligne_ajouter", args=[self.facture.pk]), self._donnees())
 

@@ -1419,6 +1419,18 @@ class FactureDetail(AccesBackoffice, DetailView):
             self.object.statut != StatutFacture.VALIDEE and self.request.user.is_superuser
         )
         contexte["form_ligne"] = styliser(forms.LigneFactureForm(prestataire=self.object.prestataire))
+        # Aperçu du calcul à la saisie : taux de chaque nature proposée, pour
+        # montrer avant l'envoi les deux montants qui seront enregistrés.
+        prestataire = self.object.prestataire
+        contexte["taux_ligne"] = {
+            "general": float(prestataire.taux_prise_en_charge),
+            # Seules les natures à tarif détaillé : les autres suivent le taux
+            # général, et l'aperçu le dit.
+            "natures": {
+                tarif.nature_soin.libelle: float(tarif.taux_prise_en_charge)
+                for tarif in prestataire.tarifs.select_related("nature_soin")
+            },
+        }
         contexte["url_ligne_ajouter"] = reverse("backoffice:facture_ligne_ajouter", args=[self.object.pk])
         return contexte
 
@@ -1491,10 +1503,9 @@ class FactureImport(AccesModification, TemplateView):
             if manquantes:
                 erreurs = [(0, f"colonnes obligatoires absentes : {', '.join(sorted(manquantes))}")]
             else:
-                taux = donnees["prestataire"].taux_prise_en_charge
                 for numero, ligne in enumerate(lignes, start=2):
                     try:
-                        analyser_ligne(ligne, taux, donnees["montant_colonne"])
+                        analyser_ligne(ligne, donnees["prestataire"], donnees["montant_colonne"])
                     except ErreurCLI as erreur:
                         erreurs.append((numero, str(erreur)))
 
@@ -1588,7 +1599,9 @@ class FactureLigneAjouter(AccesModification, View):
             return redirect("backoffice:facture_detail", pk=pk)
 
         donnees = form.cleaned_data
-        taux = facture.prestataire.taux_prise_en_charge
+        # Taux de la nature choisie (tarif détaillé, sinon taux général) :
+        # celui que le rapprochement vérifiera — voir Prestataire.taux_pour_libelle.
+        taux = facture.prestataire.taux_pour_libelle(donnees["nature"])
         try:
             if donnees["montant_colonne"] == "total":
                 montant_soin = donnees["montant"]

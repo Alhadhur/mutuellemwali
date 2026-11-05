@@ -349,13 +349,19 @@ class LigneFacture(models.Model):
 
         Le taux suit celui de la prescription rapprochée (tarif détaillé pour
         sa nature de soin s'il existe, sinon taux général du prestataire —
-        voir Prestataire.taux_pour). Sans prescription rapprochée, impossible
-        de savoir quelle nature est en jeu : repli sur le taux général.
+        voir Prestataire.taux_pour). Sans prescription rapprochée, c'est la
+        nature écrite sur la ligne qui donne le taux — la même que pour
+        déduire le montant manquant à la saisie ou à l'import.
         """
         from decimal import ROUND_HALF_UP, Decimal
 
-        nature = self.prescription.nature if self.prescription_id else None
-        taux = self.facture.prestataire.taux_pour(nature)
+        prestataire = self.facture.prestataire
+        if self.prescription_id and self.prescription.nature_id:
+            taux = prestataire.taux_pour(self.prescription.nature)
+        else:
+            # Sans prescription (ou prescription historique sans nature) :
+            # la nature écrite sur la ligne, comme lors de sa saisie.
+            taux = prestataire.taux_pour_libelle(self.nature)
         montant = Decimal(self.montant_soin) * taux / Decimal("100")
         return int(montant.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 

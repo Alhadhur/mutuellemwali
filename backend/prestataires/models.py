@@ -107,6 +107,20 @@ class Prestataire(models.Model):
                 return tarif.taux_prise_en_charge
         return self.taux_prise_en_charge
 
+    def taux_pour_libelle(self, texte):
+        """Même règle que taux_pour, à partir du texte d'une ligne de facture
+        (saisie ou CSV), qui ne porte pas de lien vers NatureSoin. Sert à
+        déduire le montant manquant au taux que le rapprochement vérifiera
+        ensuite (LigneFacture.montant_reclame_attendu) — sinon une nature à
+        tarif détaillé serait calculée au taux général et signalée à tort
+        « taux mal appliqué »."""
+        cible = _normaliser(texte or "")
+        if cible:
+            for tarif in self.tarifs.select_related("nature_soin"):
+                if _normaliser(tarif.nature_soin.libelle) == cible:
+                    return tarif.taux_prise_en_charge
+        return self.taux_prise_en_charge
+
     def natures_proposees(self):
         """Natures de soin actives réellement tarifées chez ce prestataire —
         sert à restreindre la saisie mobile. Vide tant qu'aucun tarif détaillé

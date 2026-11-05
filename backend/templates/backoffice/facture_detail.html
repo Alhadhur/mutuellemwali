@@ -200,6 +200,12 @@
         {% endfor %}
         <button class="btn btn-secondaire" type="submit">Ajouter la ligne</button>
       </form>
+      <div class="apercu-montant" id="apercu-montant">
+        Saisissez <strong>un seul</strong> montant, celui écrit sur la facture : la part réclamée à la
+        mutuelle, ou le coût total du soin (indiquez lequel dans « Ce montant correspond à »).
+        L'autre se calcule au taux de la nature du soin chez ce prestataire.
+      </div>
+      {{ taux_ligne|json_script:"taux-ligne" }}
       <div class="aide" style="margin-top:8px;font-size:12px;color:var(--muted);">
         Tapez un matricule, un nom ou un prénom pour retrouver l'agent : le champ Bénéficiaire
         propose ensuite l'agent lui-même et ses ayants droit.
@@ -377,6 +383,47 @@
         }
       });
       champMatricule.addEventListener('blur', () => { setTimeout(() => { listeAgents.innerHTML = ''; }, 150); });
+    })();
+
+    (function () {
+      // Aperçu du calcul (voir FactureLigneAjouter) : le même arrondi que
+      // importer_facture._part_mutuelle / _cout_total, au taux de la nature
+      // choisie — celui que le rapprochement vérifiera ensuite.
+      const taux = JSON.parse(document.getElementById('taux-ligne').textContent);
+      const champNature = document.getElementById('{{ form_ligne.nature.id_for_label }}');
+      const champMontant = document.getElementById('{{ form_ligne.montant.id_for_label }}');
+      const champColonne = document.getElementById('{{ form_ligne.montant_colonne.id_for_label }}');
+      const apercu = document.getElementById('apercu-montant');
+      if (!champNature || !champMontant || !champColonne || !apercu) return;
+      const aide = apercu.innerHTML;
+      const kmf = (n) => n.toLocaleString('fr-FR') + ' KMF';
+      const pourcent = (t) => t.toLocaleString('fr-FR') + ' %';
+
+      function actualiser() {
+        const nature = champNature.value;
+        const t = nature in taux.natures ? taux.natures[nature] : taux.general;
+        const montant = parseInt(champMontant.value, 10);
+        if (!nature && !(montant >= 0)) { apercu.innerHTML = aide; return; }
+        const detail = nature in taux.natures ? 'tarif « ' + nature + ' » de ce prestataire' : 'taux général du prestataire';
+        let texte = 'Taux appliqué : <strong>' + pourcent(t) + '</strong> (' + detail + ').';
+        if (montant >= 0 && champMontant.value !== '') {
+          let soin, reclame;
+          if (champColonne.value === 'total') {
+            soin = montant;
+            reclame = Math.round(montant * t / 100);
+          } else {
+            reclame = montant;
+            soin = t > 0 ? Math.round(montant * 100 / t) : null;
+          }
+          texte += ' Sera enregistré : coût du soin <strong>' + (soin === null ? '—' : kmf(soin))
+                 + '</strong>, réclamé <strong>' + kmf(reclame) + '</strong>.';
+        }
+        apercu.innerHTML = texte;
+      }
+      for (const champ of [champNature, champMontant, champColonne]) {
+        champ.addEventListener('input', actualiser);
+        champ.addEventListener('change', actualiser);
+      }
     })();
     </script>
   {% endif %}

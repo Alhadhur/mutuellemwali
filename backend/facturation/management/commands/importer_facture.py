@@ -42,13 +42,16 @@ class LigneInvalide(Exception):
 # l'import web équivalent (backoffice.views.FactureImport).
 
 
-def analyser_ligne(ligne, taux, colonne_montant):
+def analyser_ligne(ligne, prestataire, colonne_montant):
+    """Le montant absent se déduit au taux de la nature de la ligne chez ce
+    prestataire (tarif détaillé, sinon taux général — voir
+    Prestataire.taux_pour_libelle), comme le rapprochement le vérifiera."""
     if not ligne["matricule"]:
         raise LigneInvalide("matricule vide")
     if not ligne["beneficiaire"]:
         raise LigneInvalide("bénéficiaire vide")
 
-    soin, reclame = _montants(ligne, taux, colonne_montant)
+    soin, reclame = _montants(ligne, prestataire.taux_pour_libelle(ligne.get("nature")), colonne_montant)
     return {
         "date_soin": _date(ligne["date"]),
         "matricule": ligne["matricule"].upper(),
@@ -130,7 +133,7 @@ def creer_facture_avec_lignes(prestataire, numero, mois, annee, total, lignes, c
     for numero_ligne, ligne in enumerate(lignes, start=2):
         try:
             LigneFacture.objects.create(
-                facture=facture, **analyser_ligne(ligne, prestataire.taux_prise_en_charge, colonne_montant)
+                facture=facture, **analyser_ligne(ligne, prestataire, colonne_montant)
             )
             importees += 1
         except LigneInvalide as erreur:

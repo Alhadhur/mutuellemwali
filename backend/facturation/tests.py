@@ -593,3 +593,54 @@ class ResumeRapprochementTest(BaseFacturation):
             "3 ligne(s) — 1 concordante(s), 1 sans prescription, 1 matricule(s) inconnu(s). "
             "Côté mutuelle : 0 prescription(s) déclarée(s) non facturée(s).",
         )
+
+
+class TauxParNatureTest(BaseFacturation):
+    """Un hôpital tarifé par nature : le montant manquant d'une ligne se
+    déduit au taux de sa nature — celui que le rapprochement vérifie —, pas
+    au taux général (voir Prestataire.taux_pour_libelle)."""
+
+    def setUp(self):
+        super().setUp()
+        self.hospitalisation = NatureSoin.objects.get(libelle="Hospitalisation")
+        TarifPrestataire.objects.create(
+            prestataire=self.prestataire, nature_soin=self.hospitalisation, taux_prise_en_charge=50
+        )
+
+    def test_le_taux_suit_la_nature_ecrite_sans_tenir_compte_des_accents_ni_de_la_casse(self):
+        self.assertEqual(self.prestataire.taux_pour_libelle("HOSPITALISATION"), 50)
+        self.assertEqual(self.prestataire.taux_pour_libelle("Consultation"), 80)
+        self.assertEqual(self.prestataire.taux_pour_libelle(""), 80)
+
+    def test_l_import_deduit_le_cout_total_au_taux_de_la_nature(self):
+        sortie = StringIO()
+        call_command(
+            "importer_facture",
+            fichier_csv("date;matricule;beneficiaire;nature;montant\n05/03/2026;A0001;Fatima Zahra;Hospitalisation;50000\n"),
+            stdout=sortie,
+            prestataire=self.prestataire.code,
+            numero="F-H",
+            mois=3,
+            annee=2026,
+            total=50000,
+        )
+
+        ligne = LigneFacture.objects.get(facture__numero="F-H")
+        self.assertEqual(ligne.montant_reclame, 50000)
+        self.assertEqual(ligne.montant_soin, 100000)
+
+    def test_une_ligne_sans_prescription_est_controlee_au_taux_de_sa_nature(self):
+        ligne = self.ligne(self.facture(), date(2026, 3, 5), 100000, reclame=50000, nature="Hospitalisation")
+
+        self.assertEqual(ligne.montant_reclame_attendu, 50000)
+        self.assertEqual(ligne.ecart_taux, 0)
+
+    def test_une_ligne_au_taux_de_sa_nature_n_est_pas_un_ecart_de_taux(self):
+        prescription = self.declarer(date(2026, 3, 5), 100000)
+        Prescription.objects.filter(pk=prescription.pk).update(nature=self.hospitalisation)
+        facture = self.facture()
+        self.ligne(facture, date(2026, 3, 5), 100000, reclame=50000, nature="Hospitalisation")
+
+        facture.rapprocher()
+
+        self.assertEqual(facture.lignes.get().statut, StatutLigne.CONCORDANTE)
