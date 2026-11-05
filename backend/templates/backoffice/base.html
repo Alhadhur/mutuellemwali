@@ -60,9 +60,15 @@
   .btn-ok { background:var(--ok); }
   .btn-petit { padding:5px 10px; font-size:12px; }
   .cellule-actions { width:1%; }
-  .actions-ligne { display:flex; flex-direction:column; gap:4px; align-items:stretch; }
-  .actions-ligne form { display:block !important; }
-  .actions-ligne .btn { display:block; width:100%; text-align:center; box-sizing:border-box; white-space:nowrap; }
+  .actions-ligne { display:flex; gap:4px; justify-content:flex-end; flex-wrap:nowrap; }
+  .actions-ligne form { display:contents; }
+  /* Bouton à icône seule : le libellé est dans title (infobulle) et aria-label. */
+  .btn-icone { width:30px; height:30px; padding:0; display:inline-flex; align-items:center;
+               justify-content:center; flex:none; }
+  .btn-icone.btn-danger { background:#fff; color:var(--danger); border-color:#fca5a5; }
+  .btn-icone.btn-danger:hover { background:var(--danger); color:#fff; border-color:var(--danger); }
+  .btn-icone svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2;
+                   stroke-linecap:round; stroke-linejoin:round; }
 
   .barre-actions { display:flex; gap:12px; align-items:center; justify-content:space-between;
                    margin-bottom:18px; flex-wrap:wrap; }
