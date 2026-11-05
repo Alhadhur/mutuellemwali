@@ -586,6 +586,15 @@ class AyantsDroitDeLAgentTest(BaseBackoffice):
 
         self.assertFalse(reponse.json()["resultats"][0]["couvert"])
 
+    def test_le_nom_et_le_lien_sont_fournis_separement(self):
+        """La ligne de facture n'attend que le nom, sans le lien entre
+        parenthèses (voir le choix du bénéficiaire sur facture_detail)."""
+        reponse = self.client.get(reverse("backoffice:recherche_ayants_droit", args=[self.agent.pk]))
+
+        resultat = reponse.json()["resultats"][0]
+        self.assertEqual(resultat["nom"], f"{self.enfant.prenom} {self.enfant.nom}")
+        self.assertEqual(resultat["lien"], self.enfant.get_lien_parente_display())
+
 
 class NaturesDuPrestataireTest(BaseBackoffice):
     """Sur la saisie d'une prescription, les natures proposées doivent se
@@ -1096,6 +1105,8 @@ class FactureLigneAjouterTest(BaseBackoffice):
 
         self.assertContains(reponse, reverse("backoffice:recherche_agents"))
         self.assertContains(reponse, "suggestions-ligne-matricule")
+        self.assertContains(reponse, "suggestions-ligne-beneficiaire")
+        self.assertContains(reponse, reverse("backoffice:recherche_ayants_droit", args=[0]))
 
     def test_la_direction_ne_voit_pas_le_formulaire_d_ajout(self):
         self.client.force_login(self.direction)

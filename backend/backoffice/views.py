@@ -1037,6 +1037,10 @@ class AyantsDroitDeLAgent(AccesBackoffice, View):
                     {
                         "id": ayant_droit.pk,
                         "libelle": f"{ayant_droit.prenom} {ayant_droit.nom} ({ayant_droit.get_lien_parente_display()})",
+                        # Séparés du libellé pour la ligne de facture, qui
+                        # n'attend que le nom tel qu'écrit par le prestataire.
+                        "nom": f"{ayant_droit.prenom} {ayant_droit.nom}",
+                        "lien": ayant_droit.get_lien_parente_display(),
                         "couvert": ayant_droit.pk in couverts,
                     }
                     for ayant_droit in agent.ayants_droit.all()

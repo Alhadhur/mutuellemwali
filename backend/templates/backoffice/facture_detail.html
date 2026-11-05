@@ -186,16 +186,21 @@
       <form method="post" action="{{ url_ligne_ajouter }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
         {% csrf_token %}
         {% for champ in form_ligne %}
-          <div class="champ{% if champ.name == 'matricule' %} recherche-agent{% endif %}" style="min-width:160px;">
+          <div class="champ{% if champ.name == 'matricule' or champ.name == 'nom_beneficiaire' %} recherche-agent{% endif %}" style="min-width:160px;">
             <label for="{{ champ.id_for_label }}">{{ champ.label }}</label>
             {{ champ }}
             {% if champ.name == 'matricule' %}<div class="suggestions" id="suggestions-ligne-matricule"></div>{% endif %}
+            {% if champ.name == 'nom_beneficiaire' %}
+              <div class="suggestions" id="suggestions-ligne-beneficiaire"></div>
+              <div class="aide" id="aide-ligne-beneficiaire"></div>
+            {% endif %}
           </div>
         {% endfor %}
         <button class="btn btn-secondaire" type="submit">Ajouter la ligne</button>
       </form>
-      <div class="aide" style="margin-top:8px;">
-        Tapez un matricule, un nom ou un prénom pour retrouver un agent et préremplir son nom.
+      <div class="aide" style="margin-top:8px;font-size:12px;color:var(--muted);">
+        Tapez un matricule, un nom ou un prénom pour retrouver l'agent : le champ Bénéficiaire
+        propose ensuite l'agent lui-même et ses ayants droit.
       </div>
     </div>
   {% endif %}
@@ -223,86 +228,140 @@
   {% if form_ligne %}
     <script>
     (function () {
-      // Assiste la saisie manuelle d'une ligne (voir FactureLigneAjouter) :
-      // le matricule reste un texte libre — tel qu'écrit par le prestataire,
-      // y compris s'il est faux ou introuvable (voir AGENT_INCONNU au
-      // rapprochement) — mais on propose les agents qui correspondent pour
-      // éviter de retaper un nom déjà connu.
+      // Assiste la saisie manuelle d'une ligne (voir FactureLigneAjouter).
+      // Matricule et bénéficiaire restent des textes libres — tels qu'écrits
+      // par le prestataire, y compris faux ou introuvables (voir
+      // AGENT_INCONNU, BENEFICIAIRE_DIFFERENT au rapprochement) — mais une
+      // fois l'agent reconnu, le champ Bénéficiaire propose l'agent lui-même
+      // et ses ayants droit, pour ne pas retaper un nom déjà connu.
       const champMatricule = document.getElementById('{{ form_ligne.matricule.id_for_label }}');
       const champNom = document.getElementById('{{ form_ligne.nom_beneficiaire.id_for_label }}');
-      const suggestions = document.getElementById('suggestions-ligne-matricule');
-      if (!champMatricule || !suggestions) return;
+      const listeAgents = document.getElementById('suggestions-ligne-matricule');
+      const listeBeneficiaires = document.getElementById('suggestions-ligne-beneficiaire');
+      const aideBeneficiaire = document.getElementById('aide-ligne-beneficiaire');
+      if (!champMatricule || !champNom || !listeAgents || !listeBeneficiaires) return;
 
       const URL_AGENTS = "{% url 'backoffice:recherche_agents' %}";
-      // Même endpoint que la saisie de prescription (voir _recherche_agent.html) :
-      // le bénéficiaire d'une facture est soit l'agent lui-même, soit un de
-      // ses ayants droit — il faut donc proposer les deux une fois l'agent
-      // identifié, pas seulement remplir son propre nom.
       const URL_AYANTS_DROIT = "{% url 'backoffice:recherche_ayants_droit' 0 %}";
       let minuteur = null;
+      let agentReconnu = null;   // {id, matricule, nom}
+      let beneficiaires = [];    // [{nom, precision, alerte}]
 
-      function boutonSuggestion(contenu, onClick) {
+      const normaliser = (texte) =>
+        texte.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+      function ajouterBouton(liste, onClick) {
         const bouton = document.createElement('button');
         bouton.type = 'button';
-        bouton.innerHTML = contenu;
-        bouton.addEventListener('click', onClick);
-        suggestions.appendChild(bouton);
+        // mousedown plutôt que click : le choix passe avant la perte de focus
+        // du champ, qui referme la liste.
+        bouton.addEventListener('mousedown', (e) => { e.preventDefault(); onClick(); });
+        liste.appendChild(bouton);
         return bouton;
       }
 
-      function choisirBeneficiaire(nom) {
-        if (champNom) champNom.value = nom;
-        suggestions.innerHTML = '';
+      function ligneTexte(bouton, nom, precision, alerte) {
+        const elNom = document.createElement('span');
+        elNom.className = 'nom';
+        elNom.textContent = nom;
+        const elPrecision = document.createElement('div');
+        elPrecision.className = 'site';
+        elPrecision.textContent = precision + (alerte ? ' · ' + alerte : '');
+        if (alerte) elPrecision.style.color = 'var(--danger)';
+        bouton.append(elNom, elPrecision);
       }
 
-      async function afficherBeneficiaires(agent) {
-        champMatricule.value = agent.matricule;
-        suggestions.innerHTML = '';
-        boutonSuggestion(
-          '<span class="nom"></span><div class="site">Lui-même</div>',
-          () => choisirBeneficiaire(agent.nom)
-        ).querySelector('.nom').textContent = agent.nom;
-
-        const reponse = await fetch(URL_AYANTS_DROIT.replace('/0/', '/' + agent.id + '/'));
-        const donnees = await reponse.json();
-        for (const ayantDroit of donnees.resultats) {
-          const nom = ayantDroit.libelle.replace(/\s*\([^)]*\)$/, '');
-          const bouton = boutonSuggestion(
-            '<span class="nom"></span><div class="site"></div>',
-            () => choisirBeneficiaire(nom)
-          );
-          bouton.querySelector('.nom').textContent = ayantDroit.libelle;
-          bouton.querySelector('.site').textContent = ayantDroit.couvert ? '' : 'Non couvert';
+      // --- Bénéficiaire ---------------------------------------------------
+      // filtrer : seulement pendant la frappe. À l'entrée dans le champ, tout
+      // est proposé, même s'il contient déjà un nom — pour changer d'un clic.
+      function afficherBeneficiaires(filtrer) {
+        listeBeneficiaires.innerHTML = '';
+        if (!agentReconnu) return;
+        const filtre = filtrer ? normaliser(champNom.value) : '';
+        const liste = beneficiaires.filter((b) => !filtre || normaliser(b.nom).includes(filtre));
+        for (const b of liste) {
+          const bouton = ajouterBouton(listeBeneficiaires, () => {
+            champNom.value = b.nom;
+            listeBeneficiaires.innerHTML = '';
+          });
+          ligneTexte(bouton, b.nom, b.precision, b.alerte);
         }
       }
 
+      async function reconnaitreAgent(agent) {
+        agentReconnu = agent;
+        champMatricule.value = agent.matricule;
+        listeAgents.innerHTML = '';
+        beneficiaires = [{ nom: agent.nom, precision: 'Agent lui-même', alerte: '' }];
+        try {
+          const reponse = await fetch(URL_AYANTS_DROIT.replace('/0/', '/' + agent.id + '/'));
+          const donnees = await reponse.json();
+          for (const ad of donnees.resultats) {
+            beneficiaires.push({ nom: ad.nom, precision: ad.lien, alerte: ad.couvert ? '' : 'non couvert' });
+          }
+        } catch (e) { /* la liste se limite alors à l'agent lui-même */ }
+        if (agentReconnu !== agent) return;  // matricule changé entre-temps
+        const ayants = beneficiaires.length - 1;
+        aideBeneficiaire.textContent = agent.nom + (ayants ? ' et ' + ayants + ' ayant(s) droit proposés.' : ' — aucun ayant droit.');
+        if (!champNom.value) champNom.value = agent.nom;
+        if (document.activeElement === champNom) afficherBeneficiaires(false);
+      }
+
+      function oublierAgent(message) {
+        agentReconnu = null;
+        beneficiaires = [];
+        listeBeneficiaires.innerHTML = '';
+        aideBeneficiaire.textContent = message || '';
+      }
+
+      champNom.addEventListener('focus', () => { champNom.select(); afficherBeneficiaires(false); });
+      champNom.addEventListener('input', () => afficherBeneficiaires(true));
+      champNom.addEventListener('blur', () => { listeBeneficiaires.innerHTML = ''; });
+
+      // --- Matricule ------------------------------------------------------
       async function chercherAgents(texte) {
         const reponse = await fetch(URL_AGENTS + '?q=' + encodeURIComponent(texte));
         const donnees = await reponse.json();
-        suggestions.innerHTML = '';
+        if (champMatricule.value.trim() !== texte) return;  // réponse dépassée
+        listeAgents.innerHTML = '';
         for (const agent of donnees.resultats) {
-          const bouton = boutonSuggestion(
-            '<span class="matricule"></span> — <span class="nom"></span><div class="site"></div>',
-            () => afficherBeneficiaires(agent)
-          );
+          const bouton = ajouterBouton(listeAgents, () => {
+            champNom.value = '';
+            reconnaitreAgent(agent);
+            champNom.focus();
+          });
+          bouton.innerHTML = '<span class="matricule"></span> — <span class="nom"></span><div class="site"></div>';
           bouton.querySelector('.matricule').textContent = agent.matricule;
           bouton.querySelector('.nom').textContent = agent.nom;
           bouton.querySelector('.site').textContent = agent.site;
         }
+        return donnees.resultats;
       }
 
       champMatricule.addEventListener('input', () => {
         clearTimeout(minuteur);
+        oublierAgent();
         const texte = champMatricule.value.trim();
-        if (texte.length < 2) { suggestions.innerHTML = ''; return; }
+        if (texte.length < 2) { listeAgents.innerHTML = ''; return; }
         minuteur = setTimeout(() => chercherAgents(texte), 200);
       });
 
-      document.addEventListener('click', (evenement) => {
-        if (!suggestions.contains(evenement.target) && evenement.target !== champMatricule) {
-          suggestions.innerHTML = '';
+      // Matricule tapé en entier puis Tab, sans cliquer sur une suggestion :
+      // on reconnaît l'agent si le matricule existe tel quel.
+      champMatricule.addEventListener('change', async () => {
+        const texte = champMatricule.value.trim();
+        if (!texte || (agentReconnu && agentReconnu.matricule.toLowerCase() === texte.toLowerCase())) return;
+        clearTimeout(minuteur);
+        const resultats = (await chercherAgents(texte)) || [];
+        listeAgents.innerHTML = '';
+        const exact = resultats.find((a) => a.matricule.toLowerCase() === texte.toLowerCase());
+        if (exact) {
+          reconnaitreAgent(exact);
+        } else {
+          oublierAgent('Matricule non trouvé parmi les agents membres : saisissez le nom tel qu\'écrit sur la facture.');
         }
       });
+      champMatricule.addEventListener('blur', () => { setTimeout(() => { listeAgents.innerHTML = ''; }, 150); });
     })();
     </script>
   {% endif %}
