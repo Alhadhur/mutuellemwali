@@ -107,8 +107,7 @@
   </section>
 {% endif %}
 
-{# deborde-visible : la liste de suggestions du formulaire d'ajout, en bas
-   de la section, ne doit pas être coupée par le cadre arrondi. #}
+{% comment %}deborde-visible : la liste de suggestions du formulaire d'ajout, en bas de la section, ne doit pas être coupée par le cadre arrondi.{% endcomment %}
 <section class="deborde-visible">
   <h2>Lignes de la facture ({{ synthese.nombre_lignes }})</h2>
   {% if lignes %}
@@ -185,10 +184,10 @@
         Ajouter une ligne à la main — utile pour une facture à l'unité, ou pour compléter une facture
         créée sans détail. Une fois les lignes saisies, pensez à relancer le rapprochement ci-dessus.
       </p>
-      <form method="post" action="{{ url_ligne_ajouter }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+      <form method="post" action="{{ url_ligne_ajouter }}" class="grille-ligne">
         {% csrf_token %}
         {% for champ in form_ligne %}
-          <div class="champ{% if champ.name == 'matricule' or champ.name == 'nom_beneficiaire' %} recherche-agent{% endif %}" style="min-width:160px;">
+          <div class="champ ligne-{{ champ.name }}{% if champ.name == 'matricule' or champ.name == 'nom_beneficiaire' %} recherche-agent{% endif %}">
             <label for="{{ champ.id_for_label }}">{{ champ.label }}</label>
             {{ champ }}
             {% if champ.name == 'matricule' %}<div class="suggestions" id="suggestions-ligne-matricule"></div>{% endif %}
@@ -198,7 +197,7 @@
             {% endif %}
           </div>
         {% endfor %}
-        <button class="btn btn-secondaire" type="submit">Ajouter la ligne</button>
+        <div class="ligne-envoi"><button class="btn" type="submit">Ajouter la ligne</button></div>
       </form>
       <div class="apercu-montant" id="apercu-montant">
         Saisissez <strong>un seul</strong> montant, celui écrit sur la facture : la part réclamée à la
@@ -313,7 +312,9 @@
         } catch (e) { /* la liste se limite alors à l'agent lui-même */ }
         if (agentReconnu !== agent) return;  // matricule changé entre-temps
         const ayants = beneficiaires.length - 1;
-        aideBeneficiaire.textContent = agent.nom + (ayants ? ' et ' + ayants + ' ayant(s) droit proposés.' : ' — aucun ayant droit.');
+        aideBeneficiaire.textContent = ayants
+          ? "Proposés : l'agent et " + ayants + ' ayant(s) droit.'
+          : "Proposé : l'agent (aucun ayant droit).";
         if (!champNom.value) champNom.value = agent.nom;
         if (document.activeElement === champNom) afficherBeneficiaires(false);
       }

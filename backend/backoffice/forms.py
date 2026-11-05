@@ -338,7 +338,7 @@ class LigneFactureForm(forms.Form):
     obligatoire."""
 
     date_soin = forms.DateField(label="Date du soin", widget=DateInput)
-    matricule = forms.CharField(label="Matricule de l'agent", max_length=20)
+    matricule = forms.CharField(label="Matricule", max_length=20)
     nom_beneficiaire = forms.CharField(label="Bénéficiaire (tel qu'écrit sur la facture)", max_length=150)
     nature = forms.ChoiceField(label="Nature du soin")
     montant = forms.IntegerField(label="Montant (KMF)", min_value=0)
