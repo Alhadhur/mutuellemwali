@@ -107,7 +107,9 @@
   </section>
 {% endif %}
 
-<section>
+{# deborde-visible : la liste de suggestions du formulaire d'ajout, en bas
+   de la section, ne doit pas être coupée par le cadre arrondi. #}
+<section class="deborde-visible">
   <h2>Lignes de la facture ({{ synthese.nombre_lignes }})</h2>
   {% if lignes %}
     <div class="tableau-defilant tableau-compact">
@@ -286,6 +288,9 @@
           });
           ligneTexte(bouton, b.nom, b.precision, b.alerte);
         }
+        // Formulaire en bas de page : la liste s'ouvrirait sous le bord de
+        // l'écran. On fait défiler juste ce qu'il faut pour la montrer.
+        if (liste.length) listeBeneficiaires.scrollIntoView({ block: 'nearest' });
       }
 
       async function reconnaitreAgent(agent) {
@@ -315,6 +320,16 @@
       }
 
       champNom.addEventListener('focus', () => { champNom.select(); afficherBeneficiaires(false); });
+      // Champ déjà actif (après un premier choix) : le focus ne se redéclenche
+      // pas, c'est le clic qui rouvre la liste.
+      champNom.addEventListener('click', () => {
+        if (!listeBeneficiaires.childElementCount) afficherBeneficiaires(false);
+      });
+      // Un clic dans la liste — y compris sur sa barre de défilement — ne doit
+      // pas retirer le focus du champ, sinon la liste se referme aussitôt.
+      for (const liste of [listeAgents, listeBeneficiaires]) {
+        liste.addEventListener('mousedown', (e) => e.preventDefault());
+      }
       champNom.addEventListener('input', () => afficherBeneficiaires(true));
       champNom.addEventListener('blur', () => { listeBeneficiaires.innerHTML = ''; });
 
