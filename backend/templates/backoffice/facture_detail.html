@@ -79,6 +79,50 @@
       <a class="btn btn-secondaire" href="{{ facture.fichier.url }}" target="_blank" rel="noopener">Voir la facture d'origine</a>
     </div>
   {% endif %}
+  {% if ecart.ecart or ecart.nombre_corrigees or ecart.nombre_doublons %}
+    <div class="explication-ecart">
+      <strong>D'où vient l'écart ?</strong>
+      <ul>
+        <li>
+          À la réception, les lignes totalisaient <strong>{{ ecart.somme_initiale|kmf }}</strong>
+          {% if ecart.ecart_initial %}
+            — soit déjà un écart de <strong>{{ ecart.ecart_initial|kmf }}</strong> avec le total annoncé.
+          {% else %}
+            — exactement le total annoncé.
+          {% endif %}
+        </li>
+        {% if ecart.nombre_corrigees %}
+          <li>
+            <span class="marque marque-corrigee">corrigée</span>
+            {{ ecart.nombre_corrigees }} ligne(s) corrigée(s) depuis :
+            {% if ecart.effet_corrections %}
+              la somme a varié de <strong>{% if ecart.effet_corrections > 0 %}+{% endif %}{{ ecart.effet_corrections|kmf }}</strong>.
+            {% else %}
+              sans effet sur la somme.
+            {% endif %}
+          </li>
+        {% endif %}
+        {% if ecart.nombre_doublons %}
+          <li>
+            <span class="marque marque-doublon">doublon ?</span>
+            {{ ecart.nombre_doublons }} ligne(s) répètent une autre ligne (même matricule, date, bénéficiaire
+            et montants), pour <strong>{{ ecart.montant_doublons|kmf }}</strong>.
+            {% if ecart.reste %}Sans elles, l'écart serait de {{ ecart.reste|kmf }}.{% else %}Sans elles, il n'y aurait plus d'écart.{% endif %}
+          </li>
+        {% endif %}
+        {% if ecart.ecart_initial and not ecart.nombre_doublons %}
+          <li>
+            Aucune ligne en double : l'écart d'origine vient d'une ligne absente du fichier, ou d'un total
+            mal reporté sur l'en-tête. Comparez avec la facture papier.
+          </li>
+        {% endif %}
+      </ul>
+      <div class="aide">
+        Les montants d'origine ne sont conservés que depuis le 12/11/2026 : une correction faite avant cette
+        date n'est pas repérée.
+      </div>
+    </div>
+  {% endif %}
 </section>
 
 {% if non_facturees %}
@@ -119,18 +163,40 @@
 <section class="deborde-visible">
   <h2>Lignes de la facture ({{ synthese.nombre_lignes }})</h2>
   {% if lignes %}
+    {% if ecart.nombre_corrigees or ecart.nombre_doublons %}
+      <label class="filtre-marquees">
+        <input type="checkbox" id="filtre-marquees">
+        N'afficher que les lignes marquées ({{ ecart.nombre_corrigees|add:ecart.nombre_doublons }})
+      </label>
+    {% endif %}
     <div class="tableau-defilant tableau-compact">
       <table>
         <tr><th>Date</th><th>Matricule</th><th>Bénéficiaire</th><th>Nature</th><th>Coût du soin</th><th>Réclamé</th><th>Rapprochement</th><th></th></tr>
         {% for ligne in lignes %}
-          <tr>
+          <tr class="{% if ligne.montants_corriges or ligne.pk in ids_doublons %}ligne-marquee{% endif %}">
             <td>{{ ligne.date_soin|date:"d/m/Y" }}</td>
             <td>{{ ligne.matricule }}</td>
             <td>{{ ligne.nom_beneficiaire }}</td>
             <td>{{ ligne.nature|default:"—" }}</td>
-            <td>{{ ligne.montant_soin|kmf }}</td>
-            <td>{{ ligne.montant_reclame|kmf }}</td>
             <td>
+              {{ ligne.montant_soin|kmf }}
+              {% if ligne.corrigee_le and ligne.montant_soin != ligne.montant_soin_initial %}
+                <span class="sous-ligne insecable">était {{ ligne.montant_soin_initial|kmf }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {{ ligne.montant_reclame|kmf }}
+              {% if ligne.corrigee_le and ligne.montant_reclame != ligne.montant_reclame_initial %}
+                <span class="sous-ligne insecable">était {{ ligne.montant_reclame_initial|kmf }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if ligne.pk in ids_doublons %}
+                <span class="marque marque-doublon" title="Même matricule, date, bénéficiaire et montants qu'une autre ligne de cette facture : probablement facturée deux fois.">doublon ?</span>
+              {% endif %}
+              {% if ligne.montants_corriges %}
+                <span class="marque marque-corrigee" title="Montant corrigé par {{ ligne.corrigee_par|default:'—' }} le {{ ligne.corrigee_le|date:'d/m/Y H:i' }}">corrigée</span>
+              {% endif %}
               {% if ligne.statut == 'CONCORDANTE' and ligne.prescription.statut == 'EN_CONTROLE' %}
                 <span class="badge badge-warn" title="La ligne concorde, mais la prescription porte une alerte : elle ne sera pas validée avec la facture.">Concordante · prescription en contrôle</span>
               {% elif ligne.statut == 'CONCORDANTE' and ligne.prescription.statut == 'VALIDEE' %}
@@ -241,6 +307,20 @@
 
 {% block script %}
   {{ block.super }}
+  <script>
+  (function () {
+    // Masque les lignes non marquées (corrigées ou doublons probables) pour
+    // retrouver vite ce qui explique l'écart sur une facture de 200 lignes.
+    const filtre = document.getElementById('filtre-marquees');
+    if (!filtre) return;
+    filtre.addEventListener('change', () => {
+      document.querySelectorAll('.tableau-defilant tr').forEach((tr) => {
+        if (tr.querySelector('th')) return;
+        tr.hidden = filtre.checked && !tr.classList.contains('ligne-marquee');
+      });
+    });
+  })();
+  </script>
   {% if form_ligne %}
     <script>
     (function () {

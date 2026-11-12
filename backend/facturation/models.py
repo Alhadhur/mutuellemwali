@@ -102,6 +102,47 @@ class Facture(models.Model):
         """Différence entre le total annoncé et la somme réelle des lignes."""
         return self.montant_total_declare - self.montant_total_lignes
 
+    def ids_doublons(self):
+        """Lignes qui en répètent une autre (même matricule, date,
+        bénéficiaire et montants) — la première occurrence n'est pas comptée,
+        seules ses copies le sont."""
+        vues, copies = set(), set()
+        for ligne in self.lignes.order_by("pk"):
+            cle = ligne.cle_doublon()
+            if cle in vues:
+                copies.add(ligne.pk)
+            vues.add(cle)
+        return copies
+
+    def explication_ecart(self):
+        """Décompose l'écart entre le total annoncé et la somme des lignes.
+
+        Le total seul ne désigne aucune ligne : on isole ce qui l'explique
+        (corrections faites depuis la réception, copies probables) et ce qui
+        reste — ligne manquante, ou total de l'en-tête mal saisi."""
+        lignes = list(self.lignes.all())
+        doublons = self.ids_doublons()
+        somme = sum(ligne.montant_reclame for ligne in lignes)
+        somme_initiale = sum(
+            ligne.montant_reclame if ligne.montant_reclame_initial is None else ligne.montant_reclame_initial
+            for ligne in lignes
+        )
+        corrigees = [ligne for ligne in lignes if ligne.montants_corriges]
+        montant_doublons = sum(ligne.montant_reclame for ligne in lignes if ligne.pk in doublons)
+        ecart = self.montant_total_declare - somme
+        reste = ecart + montant_doublons
+        return {
+            "ecart": ecart,
+            "somme_initiale": somme_initiale,
+            "ecart_initial": self.montant_total_declare - somme_initiale,
+            "nombre_corrigees": len(corrigees),
+            "effet_corrections": somme - somme_initiale,
+            "nombre_doublons": len(doublons),
+            "montant_doublons": montant_doublons,
+            # Ce qui resterait si les copies probables étaient retirées.
+            "reste": reste,
+        }
+
     @property
     def periode(self):
         from calendar import monthrange
@@ -304,6 +345,17 @@ class LigneFacture(models.Model):
     statut = models.CharField(max_length=30, choices=StatutLigne.choices, default=StatutLigne.A_RAPPROCHER)
     commentaire = models.TextField(blank=True)
 
+    # Montants tels que reçus (import ou première saisie) : une correction
+    # ultérieure ne doit pas effacer ce que le prestataire a réellement
+    # facturé — c'est ce qui permet d'expliquer l'écart avec le total annoncé.
+    montant_soin_initial = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    montant_reclame_initial = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    corrigee_par = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="lignes_facture_corrigees", editable=False,
+    )
+    corrigee_le = models.DateTimeField(null=True, blank=True, editable=False)
+
     class Meta:
         verbose_name = "Ligne de facture"
         verbose_name_plural = "Lignes de facture"
@@ -311,6 +363,38 @@ class LigneFacture(models.Model):
 
     def __str__(self):
         return f"{self.date_soin} — {self.matricule} — {self.montant_soin} KMF"
+
+    def save(self, *args, **kwargs):
+        if self.montant_soin_initial is None:
+            self.montant_soin_initial = self.montant_soin
+        if self.montant_reclame_initial is None:
+            self.montant_reclame_initial = self.montant_reclame
+        super().save(*args, **kwargs)
+
+    @property
+    def correction_reclame(self):
+        """Variation du montant réclamé due aux corrections (0 si aucune)."""
+        if self.montant_reclame_initial is None:
+            return 0
+        return self.montant_reclame - self.montant_reclame_initial
+
+    @property
+    def montants_corriges(self):
+        return self.corrigee_le is not None and (
+            self.montant_reclame != self.montant_reclame_initial
+            or self.montant_soin != self.montant_soin_initial
+        )
+
+    def cle_doublon(self):
+        """Deux lignes de même clé dans une facture désignent probablement le
+        même soin facturé deux fois."""
+        return (
+            self.matricule.strip().upper(),
+            self.date_soin,
+            frozenset(_mots_normalises(self.nom_beneficiaire)),
+            self.montant_soin,
+            self.montant_reclame,
+        )
 
     def motif_verrouillage(self):
         """Pourquoi la ligne ne peut plus être corrigée ni supprimée — chaîne

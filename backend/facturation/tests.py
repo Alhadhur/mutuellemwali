@@ -644,3 +644,61 @@ class TauxParNatureTest(BaseFacturation):
         facture.rapprocher()
 
         self.assertEqual(facture.lignes.get().statut, StatutLigne.CONCORDANTE)
+
+
+class ExplicationEcartTest(BaseFacturation):
+    """L'écart entre le total annoncé et la somme des lignes se décompose en
+    corrections faites depuis la réception et en copies probables."""
+
+    def test_le_montant_d_origine_est_memorise_a_la_creation(self):
+        ligne = self.ligne(self.facture(), date(2026, 3, 5), 10000)
+
+        self.assertEqual(ligne.montant_soin_initial, 10000)
+        self.assertEqual(ligne.montant_reclame_initial, 8000)
+
+    def test_une_correction_garde_le_montant_d_origine(self):
+        ligne = self.ligne(self.facture(), date(2026, 3, 5), 10000)
+        ligne.montant_reclame = 7000
+        ligne.save()
+
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.montant_reclame_initial, 8000)
+        self.assertEqual(ligne.correction_reclame, -1000)
+
+    def test_l_ecart_s_explique_par_une_correction(self):
+        facture = self.facture(total=16000)
+        self.ligne(facture, date(2026, 3, 5), 10000)
+        corrigee = self.ligne(facture, date(2026, 3, 6), 10000)
+        corrigee.montant_reclame = 7000
+        corrigee.corrigee_le = corrigee.facture.date_creation
+        corrigee.save()
+
+        explication = facture.explication_ecart()
+
+        self.assertEqual(explication["ecart"], 1000)
+        self.assertEqual(explication["ecart_initial"], 0)
+        self.assertEqual(explication["nombre_corrigees"], 1)
+        self.assertEqual(explication["effet_corrections"], -1000)
+
+    def test_une_ligne_repetee_est_un_doublon_probable(self):
+        facture = self.facture(total=8000)
+        originale = self.ligne(facture, date(2026, 3, 5), 10000)
+        copie = self.ligne(facture, date(2026, 3, 5), 10000, beneficiaire="zahra FATIMA")
+        self.ligne(facture, date(2026, 3, 5), 12000)  # autre montant : pas une copie
+
+        self.assertEqual(facture.ids_doublons(), {copie.pk})
+        self.assertNotIn(originale.pk, facture.ids_doublons())
+        explication = facture.explication_ecart()
+        self.assertEqual(explication["montant_doublons"], 8000)
+        self.assertEqual(explication["reste"], explication["ecart"] + 8000)
+
+    def test_sans_correction_ni_doublon_l_ecart_reste_d_origine(self):
+        facture = self.facture(total=20000)
+        self.ligne(facture, date(2026, 3, 5), 10000)
+
+        explication = facture.explication_ecart()
+
+        self.assertEqual(explication["ecart"], 12000)
+        self.assertEqual(explication["ecart_initial"], 12000)
+        self.assertEqual(explication["nombre_corrigees"], 0)
+        self.assertEqual(explication["nombre_doublons"], 0)

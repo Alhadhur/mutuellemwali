@@ -132,6 +132,19 @@
   /* Champ « agent » en recherche libre (fragment _recherche_agent.html). */
   .recherche-agent { position:relative; }
   section.deborde-visible { overflow:visible; }
+  /* Lignes de facture qui expliquent l'écart avec le total annoncé. */
+  tr.ligne-marquee > td { background:#fffbeb; }
+  tr.ligne-marquee > td:first-child { box-shadow:inset 3px 0 0 var(--warn); }
+  .marque { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:6px;
+            margin:0 4px 3px 0; white-space:nowrap; border:1px solid; }
+  .marque-corrigee { color:#1d4ed8; border-color:#bfdbfe; background:#eff6ff; }
+  .marque-doublon { color:#b45309; border-color:#fcd34d; background:#fffbeb; }
+  .explication-ecart { margin:0 18px 18px; padding:12px 14px; background:#fffbeb; border:1px solid #fde68a;
+                       border-radius:9px; font-size:13px; }
+  .explication-ecart ul { margin:6px 0 4px; padding-left:18px; }
+  .explication-ecart li { margin:3px 0; }
+  .explication-ecart .aide { font-size:12px; color:var(--muted); }
+  .filtre-marquees { display:inline-flex; align-items:center; gap:8px; margin:12px 18px; font-size:13px; cursor:pointer; }
   /* Ajout d'une ligne de facture : colonnes fixes, pour qu'un nom long ou
      un texte d'aide n'élargisse pas un champ aux dépens des autres. */
   .grille-ligne { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:14px 14px; align-items:start; }
@@ -224,6 +237,7 @@
 
   .fiche { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 22px; padding:18px; }
   .fiche div span { display:block; font-size:12px; color:var(--muted); }
+  .fiche div span.badge { display:inline-block; color:#fff; font-size:11px; }
   .fiche div strong { font-size:14.5px; font-weight:600; }
   .pagination { padding:14px 18px; font-size:13px; color:var(--muted); display:flex; gap:12px; align-items:center; }
   .pagination a { color:var(--accent); text-decoration:none; }

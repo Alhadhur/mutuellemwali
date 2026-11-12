@@ -1238,6 +1238,50 @@ class FactureLigneCorrigerTest(BaseBackoffice):
         self.assertEqual(self.ligne.montant_reclame, 9000)
         self.assertEqual(self.ligne.matricule, self.agent.matricule.upper())
 
+    def test_la_correction_est_tracee_et_le_montant_d_origine_affiche(self):
+        self.client.post(self._url("facture_ligne_modifier"), self._donnees())
+
+        self.ligne.refresh_from_db()
+        self.assertEqual(self.ligne.corrigee_par, self.rh)
+        self.assertIsNotNone(self.ligne.corrigee_le)
+        self.assertEqual(self.ligne.montant_reclame_initial, 8000)
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.assertContains(reponse, "était 8\u202f000\u00a0KMF")
+        self.assertContains(reponse, "D'où vient l'écart ?")
+        self.assertContains(reponse, 'class="ligne-marquee"')
+
+    def test_enregistrer_sans_rien_changer_ne_marque_pas_la_ligne(self):
+        self.client.post(
+            self._url("facture_ligne_modifier"),
+            {
+                "date_soin": "2026-01-05",
+                "matricule": self.agent.matricule,
+                "nom_beneficiaire": "Fatma Zahra",
+                "nature": "Consultation",
+                "montant_soin": "10000",
+                "montant_reclame": "8000",
+            },
+        )
+
+        self.ligne.refresh_from_db()
+        self.assertIsNone(self.ligne.corrigee_le)
+
+    def test_un_doublon_probable_est_marque_sur_la_fiche(self):
+        LigneFacture.objects.create(
+            facture=self.facture,
+            date_soin=self.ligne.date_soin,
+            matricule=self.ligne.matricule,
+            nom_beneficiaire="Fatma Zahra",
+            nature="Consultation",
+            montant_soin=10000,
+            montant_reclame=8000,
+        )
+
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertContains(reponse, "doublon ?", count=2)  # marque sur la ligne + encadré
+        self.assertContains(reponse, "filtre-marquees")
+
     def test_la_ligne_corrigee_repart_a_rapprocher(self):
         self.ligne.statut = StatutLigne.ECART_MONTANT
         self.ligne.prescription = self.prescription

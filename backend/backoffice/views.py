@@ -1408,7 +1408,9 @@ class FactureDetail(AccesBackoffice, DetailView):
 
     def get_context_data(self, **kwargs):
         contexte = super().get_context_data(**kwargs)
-        contexte["lignes"] = self.object.lignes.select_related("prescription", "facture")
+        contexte["lignes"] = self.object.lignes.select_related("prescription", "facture", "corrigee_par")
+        contexte["ecart"] = self.object.explication_ecart()
+        contexte["ids_doublons"] = self.object.ids_doublons()
         contexte["non_facturees"] = self.object.prescriptions_non_facturees()
         contexte["synthese"] = self.object.synthese()
         contexte["nombre_a_valider"] = self.object.lignes_concordantes_a_valider().count()
@@ -1673,7 +1675,11 @@ class FactureLigneModifier(LigneFactureMixin, FormulaireBase, UpdateView):
         return contexte
 
     def form_valid(self, form):
-        form.instance.remettre_a_rapprocher()
+        ligne = form.instance
+        if form.has_changed():
+            ligne.corrigee_par = self.request.user
+            ligne.corrigee_le = timezone.now()
+        ligne.remettre_a_rapprocher()
         self.object = form.save()
         messages.success(self.request, "Ligne corrigée — relancez le rapprochement pour la contrôler à nouveau.")
         return redirect(self.get_success_url())
