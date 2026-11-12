@@ -22,7 +22,9 @@ concurrency:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # Version figée : ubuntu-latest est passé à 26.04, où Python 3.12.7 (la
+    # version de production, voir render.yaml) n'est pas disponible.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     services:
