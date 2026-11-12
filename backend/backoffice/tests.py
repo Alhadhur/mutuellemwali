@@ -2299,3 +2299,37 @@ class ValidationLignesFactureTest(BaseBackoffice):
         reponse = self.client.post(reverse("backoffice:facture_valider_concordantes", args=[self.facture.pk]))
 
         self.assertEqual(reponse.status_code, 403)
+
+
+class TableauDeBordActiviteDuMoisTest(BaseBackoffice):
+    """Le tableau de bord reprend l'activité du mois en cours, comparée au
+    mois précédent à date égale ; les listes à traiter n'en dépendent pas."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def test_l_activite_du_mois_est_affichee_avec_sa_comparaison(self):
+        reponse = self.client.get(reverse("backoffice:tableau_de_bord"))
+
+        self.assertEqual(reponse.context["activite_mois"]["nombre_actes"], 1)  # prescription du jour (BaseBackoffice)
+        self.assertIsNotNone(reponse.context["comparaison_mois"])
+        self.assertContains(reponse, "Actes ce mois-ci")
+        self.assertContains(reponse, "chiffres provisoires")
+        self.assertContains(reponse, 'class="variation"')
+
+    def test_une_prescription_en_controle_ancienne_reste_dans_la_liste(self):
+        Prescription.objects.create(
+            agent=self.agent,
+            prestataire=self.prestataire,
+            numero_ordonnance="ORD-ANCIENNE",
+            montant_total=5000,
+            date_emission=date.today() - timedelta(days=70),
+            justificatif="x.jpg",
+            statut=StatutPrescription.EN_CONTROLE,
+        )
+
+        reponse = self.client.get(reverse("backoffice:tableau_de_bord"))
+
+        self.assertContains(reponse, "ORD-ANCIENNE")
+        self.assertEqual(reponse.context["activite_mois"]["nombre_actes"], 1)

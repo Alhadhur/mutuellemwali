@@ -386,9 +386,18 @@ class TableauDeBordView(AccesBackoffice, TemplateView):
         contexte["agents_depasse_quota"] = services.agents_depasse_quota()
         contexte["justificatifs_expires"] = services.ayants_droit_justificatif_expire()
 
+        # Activité du mois en cours, même lecture que le rapport d'activité
+        # (période par défaut, comparaison à date égale, mention provisoire).
+        # Les listes « à traiter » ci-dessus restent un état à l'instant :
+        # un dossier ouvert le mois dernier ne doit pas en disparaître.
+        debut, fin = rapports_services.periode_par_defaut()
+        activite = rapports_services.activite_globale(debut, fin)
+        contexte["activite_mois"] = activite
+        contexte["comparaison_mois"] = rapports_services.comparaison(debut, fin, activite)
+        contexte["provisoire_mois"] = rapports_services.etat_provisoire(debut, fin)
+
         tendance = rapports_services.evolution_recente(6)
         contexte["tendance_mensuelle"] = tendance
-        contexte["mois_courant"] = tendance[-1]
         contexte["tendance_max"] = max((mois["montant"] for mois in tendance), default=0) or 1
         return contexte
 

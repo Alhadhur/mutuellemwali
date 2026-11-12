@@ -22,14 +22,41 @@
   </div>
 
   <section>
-    <h2>💰 Montant des prescriptions saisies — tendance sur 6 mois</h2>
+    <h2>💰 Activité du mois — tendance sur 6 mois</h2>
     <div style="padding:18px;">
+      {% if provisoire_mois %}
+        <div class="bandeau-provisoire" style="margin:0 0 14px;">⏳ {{ provisoire_mois }}</div>
+      {% endif %}
       <div class="kpis" style="margin-bottom:18px;">
         <div class="kpi">
-          <div class="value">{{ mois_courant.montant|floatformat:0|intcomma }} KMF</div>
-          <div class="label">Saisi ce mois-ci ({{ mois_courant.nombre }} acte{{ mois_courant.nombre|pluralize }})</div>
+          <div class="value">{{ activite_mois.nombre_actes|milliers }}</div>
+          <div class="label">Actes ce mois-ci</div>
+          {% include "backoffice/_variation.html" with variation=comparaison_mois.variations.nombre_actes %}
+        </div>
+        <div class="kpi">
+          <div class="value">{{ activite_mois.cout_total_soins|kmf }}</div>
+          <div class="label">Coût des soins</div>
+          {% include "backoffice/_variation.html" with variation=comparaison_mois.variations.cout_total_soins %}
+        </div>
+        <div class="kpi">
+          <div class="value">{{ activite_mois.part_mutuelle|kmf }}</div>
+          <div class="label">Part mutuelle validée</div>
+          {% include "backoffice/_variation.html" with variation=comparaison_mois.variations.part_mutuelle %}
+          {% if activite_mois.part_mutuelle_en_attente %}
+            <div class="label">+ <strong>{{ activite_mois.part_mutuelle_en_attente|kmf }}</strong> en attente (estimation)</div>
+          {% endif %}
+        </div>
+        <div class="kpi">
+          <div class="value">{{ activite_mois.nombre_agents_consommateurs|milliers }}</div>
+          <div class="label">Agents ayant consommé</div>
+          {% include "backoffice/_variation.html" with variation=comparaison_mois.variations.nombre_agents_consommateurs %}
         </div>
       </div>
+      {% if comparaison_mois %}
+        <div class="aide" style="font-size:12px;color:var(--muted);margin:-8px 0 16px;">
+          Variations comparées au {{ comparaison_mois.debut|date:"d/m/Y" }} – {{ comparaison_mois.fin|date:"d/m/Y" }}, à date égale.
+        </div>
+      {% endif %}
       <div style="display:flex;align-items:flex-end;gap:14px;height:150px;">
         {% for m in tendance_mensuelle %}
           <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">
@@ -41,7 +68,7 @@
         {% endfor %}
       </div>
       <div style="margin-top:16px;">
-        <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:rapports' %}">Voir le détail dans Rapports d'activité</a>
+        <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:rapports' %}">Voir le rapport détaillé du mois</a>
       </div>
     </div>
   </section>
