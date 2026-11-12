@@ -2260,8 +2260,8 @@ class AnomaliesExport(AccesBackoffice, View):
 
 
 def _periode_rapport(requete):
-    """Même lecture que pour les anomalies, mais sur douze mois par défaut :
-    une activité se juge sur une saison complète."""
+    """Même lecture que pour les anomalies ; par défaut le mois en cours (voir
+    rapports.services.periode_par_defaut)."""
     from datetime import datetime
 
     from rapports import services as rapports_services
@@ -2294,7 +2294,14 @@ class RapportsView(AccesBackoffice, TemplateView):
 
         contexte["debut"] = debut
         contexte["fin"] = fin
-        contexte["synthese"] = rapports_services.activite_globale(debut, fin)
+        synthese = rapports_services.activite_globale(debut, fin)
+        contexte["synthese"] = synthese
+        contexte["raccourcis"] = [
+            {"cle": cle, "libelle": libelle, "debut": d, "fin": f, "actif": (d, f) == (debut, fin)}
+            for cle, libelle, d, f in rapports_services.raccourcis_periode()
+        ]
+        contexte["comparaison"] = rapports_services.comparaison(debut, fin, synthese)
+        contexte["provisoire"] = rapports_services.etat_provisoire(debut, fin)
 
         tableaux_contexte = []
         for tableau in tableaux.RAPPORTS:
@@ -2330,11 +2337,14 @@ class RapportsExport(AccesBackoffice, View):
 
         debut, fin = _periode_rapport(request)
         synthese = rapports_services.activite_globale(debut, fin)
+        provisoire = rapports_services.etat_provisoire(debut, fin)
+        avertissement = [["Attention", provisoire]] if provisoire else []
         entete = (
             ["Mutuelle santé — rapport d'activité"],
             ["Période", f"du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"],
             ["Édité le", f"{timezone.localdate():%d/%m/%Y}"],
             ["Édité par", request.user.get_full_name()],
+            *avertissement,
             [],
             ["Actes enregistrés", synthese["nombre_actes"]],
             ["Agents ayant consommé", synthese["nombre_agents_consommateurs"]],

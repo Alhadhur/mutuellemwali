@@ -8,6 +8,7 @@ quel coût, et en combien de temps le service a traité les dossiers.
 Comme pour les anomalies, chaque rapport renvoie une liste de dictionnaires :
 l'écran et l'export CSV lisent la même fonction.
 """
+from calendar import monthrange
 from collections import Counter
 from datetime import date, timedelta
 
@@ -390,11 +391,109 @@ def evolution_recente(nombre_mois=6):
             mois_par_cle[cle]["nombre"] = ligne["nombre"]
             mois_par_cle[cle]["montant"] = ligne["montant"]
 
+    for ligne in mois_par_cle.values():
+        ligne["panier_moyen"] = round(ligne["montant"] / ligne["nombre"]) if ligne["nombre"] else 0
     return [mois_par_cle[cle] for cle in cles]
 
 
+def evolution_douze_mois():
+    """Tendance du rapport d'activité : toujours les 12 derniers mois, mois
+    en cours compris, quelle que soit la période choisie — sur un seul mois,
+    une évolution n'aurait qu'une barre."""
+    return evolution_recente(12)
+
+
 def periode_par_defaut():
-    """Les douze derniers mois : une activité se lit sur une saison complète,
-    pas sur la fenêtre courte utilisée pour la détection d'anomalies."""
-    fin = timezone.localdate()
-    return fin - timedelta(days=365), fin
+    """Le mois en cours, du 1er à aujourd'hui : la question la plus
+    fréquente. Les autres périodes usuelles sont à un clic (voir
+    raccourcis_periode)."""
+    aujourdhui = timezone.localdate()
+    return aujourdhui.replace(day=1), aujourdhui
+
+
+def _decaler_mois(premier_du_mois, nombre):
+    """Premier jour du mois situé `nombre` mois avant (négatif) ou après."""
+    index = premier_du_mois.year * 12 + premier_du_mois.month - 1 + nombre
+    return date(index // 12, index % 12 + 1, 1)
+
+
+def _fin_de_mois(jour):
+    return jour.replace(day=monthrange(jour.year, jour.month)[1])
+
+
+def raccourcis_periode(aujourdhui=None):
+    """Périodes proposées en un clic au-dessus du filtre : (clé, libellé,
+    début, fin)."""
+    aujourdhui = aujourdhui or timezone.localdate()
+    debut_mois = aujourdhui.replace(day=1)
+    debut_mois_dernier = _decaler_mois(debut_mois, -1)
+    debut_trimestre = date(aujourdhui.year, 3 * ((aujourdhui.month - 1) // 3) + 1, 1)
+    return [
+        ("mois", "Ce mois", debut_mois, aujourdhui),
+        ("mois_dernier", "Mois dernier", debut_mois_dernier, _fin_de_mois(debut_mois_dernier)),
+        ("trimestre", "Ce trimestre", debut_trimestre, aujourdhui),
+        ("annee", "Cette année", date(aujourdhui.year, 1, 1), aujourdhui),
+        ("douze_mois", "12 derniers mois", _decaler_mois(debut_mois, -11), aujourdhui),
+    ]
+
+
+def periode_de_comparaison(debut, fin):
+    """Même période, un mois plus tôt et à date égale — ou None si la période
+    ne tient pas dans un seul mois à partir du 1er (trimestre, intervalle
+    libre…), où « le mois précédent » n'a pas de sens.
+
+    Du 1er au 12 novembre → du 1er au 12 octobre : comparer 12 jours à un
+    mois entier ferait croire à une baisse. Un mois complet se compare au
+    mois précédent complet (30 novembre → 31 octobre)."""
+    if debut.day != 1 or (debut.year, debut.month) != (fin.year, fin.month) or fin < debut:
+        return None
+    debut_precedent = _decaler_mois(debut, -1)
+    fin_mois_precedent = _fin_de_mois(debut_precedent)
+    if fin == _fin_de_mois(fin):
+        return debut_precedent, fin_mois_precedent
+    return debut_precedent, debut_precedent.replace(day=min(fin.day, fin_mois_precedent.day))
+
+
+INDICATEURS_COMPARES = ("nombre_actes", "nombre_agents_consommateurs", "cout_total_soins", "part_mutuelle")
+
+
+def comparaison(debut, fin, synthese):
+    """Variation en % des principaux indicateurs par rapport à la période de
+    comparaison. Une variation vaut None quand la période précédente est à
+    zéro (un pourcentage n'y aurait aucun sens)."""
+    periode = periode_de_comparaison(debut, fin)
+    if periode is None:
+        return None
+    precedente = activite_globale(*periode)
+    variations = {}
+    for cle in INDICATEURS_COMPARES:
+        avant, maintenant = precedente[cle], synthese[cle]
+        variations[cle] = {
+            "avant": avant,
+            "pourcentage": round((maintenant - avant) * 100 / avant) if avant else None,
+        }
+    return {"debut": periode[0], "fin": periode[1], "variations": variations}
+
+
+def etat_provisoire(debut, fin, aujourdhui=None):
+    """Message à afficher quand les chiffres peuvent encore bouger, sinon "".
+
+    Le rapport classe chaque soin à la date de l'ordonnance : une ordonnance
+    déclarée en retard fait encore évoluer le mois en cours, et pendant
+    quelques jours le mois précédent."""
+    aujourdhui = aujourdhui or timezone.localdate()
+    debut_mois = aujourdhui.replace(day=1)
+    if fin >= debut_mois:
+        if debut == debut_mois and fin == aujourdhui:
+            jours = monthrange(aujourdhui.year, aujourdhui.month)[1]
+            return (
+                f"Mois en cours — jour {aujourdhui.day} sur {jours} : chiffres provisoires, "
+                "ils évolueront jusqu'à la fin du mois."
+            )
+        return "La période inclut le mois en cours : chiffres provisoires."
+    if fin >= _decaler_mois(debut_mois, -1) and aujourdhui.day <= 10:
+        return (
+            "Le mois dernier peut encore recevoir des ordonnances déclarées en retard : "
+            "chiffres à confirmer dans quelques jours."
+        )
+    return ""

@@ -1,0 +1,13 @@
+{% load affichage %}{% if variation %}
+  <div class="variation" title="Période de comparaison : {{ variation.avant|milliers }}">
+    {% if variation.pourcentage is None %}
+      — <span>(0 le mois précédent)</span>
+    {% elif variation.pourcentage > 0 %}
+      ▲ +{{ variation.pourcentage }} % <span>vs mois précédent</span>
+    {% elif variation.pourcentage < 0 %}
+      ▼ {{ variation.pourcentage }} % <span>vs mois précédent</span>
+    {% else %}
+      = 0 % <span>vs mois précédent</span>
+    {% endif %}
+  </div>
+{% endif %}

@@ -375,8 +375,12 @@ RAPPORTS: tuple[Tableau, ...] = (
     Tableau(
         cle="evolution",
         titre="Évolution mois par mois",
-        description="Volume et coût par mois, pour lire une tendance plutôt qu'un instantané.",
-        source=rapports.evolution_mensuelle,
+        description=(
+            "Volume et coût des 12 derniers mois, mois en cours compris, pour lire une tendance "
+            "plutôt qu'un instantané."
+        ),
+        source=rapports.evolution_douze_mois,
+        suit_la_periode=False,
         colonnes=(
             ("Mois", "mois"),
             ("Actes", "nombre"),

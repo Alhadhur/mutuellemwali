@@ -5,6 +5,14 @@
 {% block entete %}Rapports d'activité{% endblock %}
 
 {% block contenu %}
+<nav class="raccourcis-periode" aria-label="Période">
+  {% for r in raccourcis %}
+    <a href="?debut={{ r.debut|date:'Y-m-d' }}&amp;fin={{ r.fin|date:'Y-m-d' }}"
+       class="{% if r.actif %}actif{% endif %}"{% if r.actif %} aria-current="page"{% endif %}
+       title="Du {{ r.debut|date:'d/m/Y' }} au {{ r.fin|date:'d/m/Y' }}">{{ r.libelle }}</a>
+  {% endfor %}
+</nav>
+
 <div class="barre-actions">
   <form method="get" class="filtre-periode">
     <label for="debut">Du</label>
@@ -21,24 +29,34 @@
 <div class="rappel-periode">
   Activité du {{ debut|date:"d/m/Y" }} au {{ fin|date:"d/m/Y" }}.
   Les montants sont exprimés en KMF, sans décimale.
+  {% if comparaison %}
+    Les variations comparent au {{ comparaison.debut|date:"d/m/Y" }} – {{ comparaison.fin|date:"d/m/Y" }}.
+  {% endif %}
 </div>
+{% if provisoire %}
+  <div class="bandeau-provisoire">⏳ {{ provisoire }}</div>
+{% endif %}
 
 <div class="kpis">
   <div class="kpi">
     <div class="value">{{ synthese.nombre_actes|milliers }}</div>
     <div class="label">Actes enregistrés</div>
+    {% include "backoffice/_variation.html" with variation=comparaison.variations.nombre_actes %}
   </div>
   <div class="kpi">
     <div class="value">{{ synthese.nombre_agents_consommateurs|milliers }} <span class="sur">/ {{ synthese.nombre_agents_actifs|milliers }}</span></div>
     <div class="label">Agents ayant consommé</div>
+    {% include "backoffice/_variation.html" with variation=comparaison.variations.nombre_agents_consommateurs %}
   </div>
   <div class="kpi">
     <div class="value">{{ synthese.cout_total_soins|milliers }}</div>
     <div class="label">Coût total des soins</div>
+    {% include "backoffice/_variation.html" with variation=comparaison.variations.cout_total_soins %}
   </div>
   <div class="kpi">
     <div class="value">{{ synthese.part_mutuelle|milliers }}</div>
     <div class="label">Part mutuelle (dossiers validés)</div>
+    {% include "backoffice/_variation.html" with variation=comparaison.variations.part_mutuelle %}
     {% if synthese.part_mutuelle_en_attente %}
       <div class="label">+ <strong>{{ synthese.part_mutuelle_en_attente|milliers }}</strong> en attente (estimation)</div>
     {% endif %}

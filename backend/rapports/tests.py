@@ -327,3 +327,121 @@ class MontantsDusTest(BaseRapports):
         reponse = self.client.get(reverse("backoffice:rapports"))
 
         self.assertContains(reponse, "Montants dus aux prestataires")
+
+
+class PeriodesTest(TestCase):
+    """Période par défaut, raccourcis et comparaison à date égale."""
+
+    def test_la_periode_par_defaut_est_le_mois_en_cours(self):
+        debut, fin = services.periode_par_defaut()
+
+        self.assertEqual(debut, date.today().replace(day=1))
+        self.assertEqual(fin, date.today())
+
+    def test_les_raccourcis(self):
+        raccourcis = {cle: (d, f) for cle, _, d, f in services.raccourcis_periode(date(2026, 11, 12))}
+
+        self.assertEqual(raccourcis["mois"], (date(2026, 11, 1), date(2026, 11, 12)))
+        self.assertEqual(raccourcis["mois_dernier"], (date(2026, 10, 1), date(2026, 10, 31)))
+        self.assertEqual(raccourcis["trimestre"], (date(2026, 10, 1), date(2026, 11, 12)))
+        self.assertEqual(raccourcis["annee"], (date(2026, 1, 1), date(2026, 11, 12)))
+        self.assertEqual(raccourcis["douze_mois"], (date(2025, 12, 1), date(2026, 11, 12)))
+
+    def test_le_mois_dernier_de_janvier_est_decembre(self):
+        raccourcis = {cle: (d, f) for cle, _, d, f in services.raccourcis_periode(date(2027, 1, 5))}
+
+        self.assertEqual(raccourcis["mois_dernier"], (date(2026, 12, 1), date(2026, 12, 31)))
+
+    def test_le_mois_en_cours_se_compare_a_date_egale(self):
+        self.assertEqual(
+            services.periode_de_comparaison(date(2026, 11, 1), date(2026, 11, 12)),
+            (date(2026, 10, 1), date(2026, 10, 12)),
+        )
+
+    def test_un_mois_complet_se_compare_au_mois_precedent_complet(self):
+        self.assertEqual(
+            services.periode_de_comparaison(date(2026, 11, 1), date(2026, 11, 30)),
+            (date(2026, 10, 1), date(2026, 10, 31)),
+        )
+        self.assertEqual(
+            services.periode_de_comparaison(date(2026, 3, 1), date(2026, 3, 31)),
+            (date(2026, 2, 1), date(2026, 2, 28)),
+        )
+
+    def test_le_30_mars_se_compare_au_28_fevrier(self):
+        self.assertEqual(
+            services.periode_de_comparaison(date(2026, 3, 1), date(2026, 3, 30)),
+            (date(2026, 2, 1), date(2026, 2, 28)),
+        )
+
+    def test_pas_de_comparaison_hors_d_un_mois_unique(self):
+        self.assertIsNone(services.periode_de_comparaison(date(2026, 10, 1), date(2026, 11, 12)))
+        self.assertIsNone(services.periode_de_comparaison(date(2026, 11, 5), date(2026, 11, 12)))
+
+    def test_le_mois_en_cours_est_provisoire(self):
+        message = services.etat_provisoire(date(2026, 11, 1), date(2026, 11, 12), aujourdhui=date(2026, 11, 12))
+
+        self.assertIn("jour 12 sur 30", message)
+
+    def test_le_mois_dernier_est_a_confirmer_en_debut_de_mois(self):
+        self.assertIn(
+            "retard",
+            services.etat_provisoire(date(2026, 10, 1), date(2026, 10, 31), aujourdhui=date(2026, 11, 5)),
+        )
+        self.assertEqual(
+            services.etat_provisoire(date(2026, 10, 1), date(2026, 10, 31), aujourdhui=date(2026, 11, 20)), ""
+        )
+
+
+class ComparaisonEtEcranTest(BaseRapports):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+
+    def test_la_variation_compare_au_mois_precedent(self):
+        debut, fin = date(2026, 11, 1), date(2026, 11, 12)
+        for jour in (date(2026, 10, 3), date(2026, 10, 20)):  # le 20 octobre est hors de la comparaison
+            Prescription.objects.create(
+                agent=self.agent, prestataire=self.pharmacie, numero_ordonnance=f"O-{jour}",
+                montant_total=10000, date_emission=jour, justificatif="x.jpg",
+            )
+        for numero in ("N-1", "N-2"):
+            Prescription.objects.create(
+                agent=self.agent, prestataire=self.pharmacie, numero_ordonnance=numero,
+                montant_total=10000, date_emission=date(2026, 11, 4), justificatif="x.jpg",
+            )
+
+        synthese = services.activite_globale(debut, fin)
+        resultat = services.comparaison(debut, fin, synthese)
+
+        self.assertEqual(resultat["variations"]["nombre_actes"], {"avant": 1, "pourcentage": 100})
+        self.assertIsNone(resultat["variations"]["part_mutuelle"]["pourcentage"])
+
+    def test_l_ecran_s_ouvre_sur_le_mois_en_cours_avec_les_raccourcis(self):
+        self.prescription(self.agent, 12000)
+
+        reponse = self.client.get(reverse("backoffice:rapports"))
+
+        self.assertEqual(reponse.context["debut"], date.today().replace(day=1))
+        actifs = [r["cle"] for r in reponse.context["raccourcis"] if r["actif"]]
+        self.assertEqual(actifs, ["mois"])
+        self.assertContains(reponse, "Mois dernier")
+        self.assertContains(reponse, "chiffres provisoires")
+        self.assertContains(reponse, 'class="variation"')
+
+    def test_l_evolution_couvre_toujours_douze_mois(self):
+        reponse = self.client.get(
+            reverse("backoffice:rapports"), {"debut": "2026-01-01", "fin": "2026-01-31"}
+        )
+
+        evolution = next(t for t in reponse.context["tableaux"] if t["cle"] == "evolution")
+        self.assertEqual(len(evolution["lignes"]), 12)
+        self.assertFalse(evolution["suit_la_periode"])
+
+    def test_un_intervalle_libre_n_active_aucun_raccourci_ni_comparaison(self):
+        reponse = self.client.get(
+            reverse("backoffice:rapports"), {"debut": "2026-01-05", "fin": "2026-02-10"}
+        )
+
+        self.assertFalse(any(r["actif"] for r in reponse.context["raccourcis"]))
+        self.assertIsNone(reponse.context["comparaison"])
