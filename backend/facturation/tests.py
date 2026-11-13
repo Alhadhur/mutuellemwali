@@ -702,3 +702,100 @@ class ExplicationEcartTest(BaseFacturation):
         self.assertEqual(explication["ecart_initial"], 12000)
         self.assertEqual(explication["nombre_corrigees"], 0)
         self.assertEqual(explication["nombre_doublons"], 0)
+
+
+class RapprochementMemeJourTest(BaseFacturation):
+    """Plusieurs soins du même agent (ou de ses ayants droit) le même jour :
+    chaque ligne doit trouver sa propre prescription, quel que soit l'ordre
+    des lignes sur la facture — et non la première prescription venue."""
+
+    JOUR = date(2026, 3, 5)
+
+    def creer_enfant(self):
+        return AyantDroit.objects.create(
+            agent=self.agent,
+            nom="Zahra",
+            prenom="Amine",
+            lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE,
+            justificatif="x.jpg",
+        )
+
+    def test_une_ligne_exacte_garde_sa_prescription_meme_si_une_ligne_en_ecart_passe_avant(self):
+        p_10000 = self.declarer(self.JOUR, 10000, numero="ORD-A")
+        p_15000 = self.declarer(self.JOUR, 15000, numero="ORD-B")
+        facture = self.facture()
+        en_ecart = self.ligne(facture, self.JOUR, 12000)  # saisie en premier
+        exacte = self.ligne(facture, self.JOUR, 10000)
+
+        facture.rapprocher()
+
+        exacte.refresh_from_db()
+        en_ecart.refresh_from_db()
+        self.assertEqual(exacte.prescription, p_10000)
+        self.assertEqual(exacte.statut, StatutLigne.CONCORDANTE)
+        self.assertEqual(en_ecart.prescription, p_15000)
+        self.assertEqual(en_ecart.statut, StatutLigne.ECART_MONTANT)
+
+    def test_a_defaut_de_montant_exact_le_plus_proche_l_emporte(self):
+        p_11000 = self.declarer(self.JOUR, 11000, numero="ORD-A")
+        p_19000 = self.declarer(self.JOUR, 19000, numero="ORD-B")
+        facture = self.facture()
+        ligne_20000 = self.ligne(facture, self.JOUR, 20000)
+        ligne_10000 = self.ligne(facture, self.JOUR, 10000)
+
+        facture.rapprocher()
+
+        ligne_20000.refresh_from_db()
+        ligne_10000.refresh_from_db()
+        self.assertEqual(ligne_20000.prescription, p_19000)
+        self.assertEqual(ligne_10000.prescription, p_11000)
+
+    def test_l_agent_et_son_enfant_le_meme_jour_ne_sont_pas_croises(self):
+        enfant = self.creer_enfant()
+        p_agent = self.declarer(self.JOUR, 10000, numero="ORD-AGENT")
+        p_enfant = self.declarer(self.JOUR, 9000, numero="ORD-ENFANT")
+        Prescription.objects.filter(pk=p_enfant.pk).update(ayant_droit=enfant)
+        facture = self.facture()
+        ligne_enfant = self.ligne(facture, self.JOUR, 9500, beneficiaire="Amine Zahra")
+        ligne_agent = self.ligne(facture, self.JOUR, 10000, beneficiaire="Fatima Zahra")
+
+        facture.rapprocher()
+
+        ligne_enfant.refresh_from_db()
+        ligne_agent.refresh_from_db()
+        self.assertEqual(ligne_agent.prescription, p_agent)
+        self.assertEqual(ligne_agent.statut, StatutLigne.CONCORDANTE)
+        self.assertEqual(ligne_enfant.prescription, p_enfant)
+        self.assertEqual(ligne_enfant.statut, StatutLigne.ECART_MONTANT)
+
+    def test_le_bon_beneficiaire_passe_avant_le_montant_exact(self):
+        """Le prestataire a mal reporté le montant de l'enfant, et ce montant
+        tombe pile sur celui de l'agent : la ligne reste celle de l'enfant."""
+        enfant = self.creer_enfant()
+        self.declarer(self.JOUR, 10000, numero="ORD-AGENT")
+        p_enfant = self.declarer(self.JOUR, 9000, numero="ORD-ENFANT")
+        Prescription.objects.filter(pk=p_enfant.pk).update(ayant_droit=enfant)
+        facture = self.facture()
+        ligne_enfant = self.ligne(facture, self.JOUR, 10000, beneficiaire="Amine Zahra")
+
+        facture.rapprocher()
+
+        ligne_enfant.refresh_from_db()
+        self.assertEqual(ligne_enfant.prescription, p_enfant)
+        self.assertEqual(ligne_enfant.statut, StatutLigne.ECART_MONTANT)
+
+    def test_le_resultat_ne_depend_pas_de_l_ordre_de_saisie(self):
+        self.declarer(self.JOUR, 10000, numero="ORD-A")
+        self.declarer(self.JOUR, 15000, numero="ORD-B")
+        resultats = []
+        for montants in ((12000, 10000), (10000, 12000)):
+            facture = self.facture(numero=f"F-{montants[0]}")
+            for montant in montants:
+                self.ligne(facture, self.JOUR, montant)
+            facture.rapprocher()
+            resultats.append(
+                sorted((l.montant_soin, l.prescription.numero_ordonnance) for l in facture.lignes.all())
+            )
+
+        self.assertEqual(resultats[0], resultats[1])

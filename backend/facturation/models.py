@@ -15,7 +15,6 @@ from datetime import date
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Case, When
 from django.utils import timezone
 
 from prescriptions.models import Prescription, StatutPrescription
@@ -28,6 +27,54 @@ def _mots_normalises(texte):
     « Prénom Nom »)."""
     sans_accents = "".join(c for c in unicodedata.normalize("NFKD", texte or "") if not unicodedata.combining(c))
     return set(sans_accents.lower().split())
+
+def _noms_correspondent(nom_facture, nom_attendu):
+    """Voir LigneFacture.beneficiaire_correspond : un nom vide ne contredit
+    rien, et l'un des deux noms peut n'être qu'une partie de l'autre."""
+    mots_factures = _mots_normalises(nom_facture)
+    mots_attendus = _mots_normalises(nom_attendu)
+    if not mots_factures or not mots_attendus:
+        return True
+    return mots_factures <= mots_attendus or mots_attendus <= mots_factures
+
+
+def _apparier(lignes, prescriptions):
+    """Associe les lignes d'un même agent et d'une même date à ses
+    prescriptions de ce jour-là, chacune servant au plus une fois.
+
+    Toutes les paires possibles sont classées, puis retenues de la plus sûre
+    à la moins sûre — le résultat ne dépend donc pas de l'ordre des lignes :
+    1. même bénéficiaire (l'agent ou tel ayant droit) — l'identité du patient
+       compte plus qu'un montant mal reporté ;
+    2. montant exact ;
+    3. prescription encore en jeu avant une prescription rejetée ;
+    4. montant le plus proche.
+    Retourne {pk de ligne: prescription}."""
+    paires = []
+    for ligne in lignes:
+        for prescription in prescriptions:
+            paires.append(
+                (
+                    not _noms_correspondent(ligne.nom_beneficiaire, prescription.nom_beneficiaire),
+                    prescription.montant_total != ligne.montant_soin,
+                    prescription.statut == StatutPrescription.REJETEE,
+                    abs(prescription.montant_total - ligne.montant_soin),
+                    ligne.pk,
+                    prescription.pk,
+                    ligne,
+                    prescription,
+                )
+            )
+    paires.sort(key=lambda paire: paire[:6])
+
+    attributions, prises = {}, set()
+    for *_, ligne, prescription in paires:
+        if ligne.pk in attributions or prescription.pk in prises:
+            continue
+        attributions[ligne.pk] = prescription
+        prises.add(prescription.pk)
+    return attributions
+
 
 MOIS = [
     (1, "Janvier"), (2, "Février"), (3, "Mars"), (4, "Avril"),
@@ -173,64 +220,67 @@ class Facture(models.Model):
         """Confronte chaque ligne aux prescriptions de la période.
 
         N'écrit aucun statut de prescription : le rapprochement éclaire la
-        décision, il ne la prend pas."""
+        décision, il ne la prend pas.
+
+        Les lignes sont appariées par groupe (même agent, même date), et non
+        une par une dans l'ordre de la facture : sinon une ligne en écart
+        saisie avant une ligne exacte lui prenait sa prescription, et l'agent
+        et son ayant droit soignés le même jour se trouvaient croisés."""
+        from collections import defaultdict
+
         from beneficiaires.models import Agent
 
-        deja_prises = set()
+        agents = {}
+        groupes = defaultdict(list)
         for ligne in self.lignes.all():
-            agent = Agent.objects.filter(utilisateur__matricule__iexact=ligne.matricule).first()
+            cle_matricule = ligne.matricule.strip().upper()
+            if cle_matricule not in agents:
+                agents[cle_matricule] = Agent.objects.filter(utilisateur__matricule__iexact=cle_matricule).first()
+            agent = agents[cle_matricule]
             if not agent:
                 ligne.prescription = None
                 ligne.statut = StatutLigne.AGENT_INCONNU
                 ligne.save()
                 continue
+            groupes[(agent.pk, ligne.date_soin)].append(ligne)
 
-            candidates = self.prescriptions_de_la_periode().filter(
-                agent=agent, date_emission=ligne.date_soin
-            ).exclude(pk__in=deja_prises)
+        prescriptions = defaultdict(list)
+        for prescription in self.prescriptions_de_la_periode():
+            prescriptions[(prescription.agent_id, prescription.date_emission)].append(prescription)
 
-            # À égalité, une prescription encore en jeu passe avant une
-            # prescription rejetée : la ligne ne doit pas se rattacher au
-            # rejet quand une autre prescription lui correspond.
-            candidates = candidates.order_by(
-                Case(When(statut=StatutPrescription.REJETEE, then=1), default=0), "pk"
-            )
-            exacte = candidates.filter(montant_total=ligne.montant_soin).first()
-            approchante = exacte or candidates.first()
-
-            if approchante:
-                ligne.prescription = approchante
-                deja_prises.add(approchante.pk)
-            else:
-                ligne.prescription = None
-
-            if approchante and approchante.statut == StatutPrescription.REJETEE:
-                # Le prestataire facture un soin que la mutuelle a refusé de
-                # prendre en charge : à arbitrer, jamais à valider d'office.
-                ligne.statut = StatutLigne.PRESCRIPTION_REJETEE
-            elif not self.prestataire.propose_nature(ligne.nature):
-                # Le prestataire a des tarifs détaillés mais aucun ne
-                # correspond à cette nature : il facture un soin qu'il n'est
-                # pas censé proposer — plus grave qu'un simple écart de
-                # montant ou de taux.
-                ligne.statut = StatutLigne.NATURE_NON_COUVERTE
-            elif not ligne.beneficiaire_correspond():
-                # Matricule, date et montant concordent, mais le nom écrit
-                # par le prestataire ne désigne pas le même bénéficiaire :
-                # potentiellement le mauvais ayant droit, ou pire.
-                ligne.statut = StatutLigne.BENEFICIAIRE_DIFFERENT
-            elif exacte:
-                # Le coût du soin concorde : reste à vérifier que le
-                # prestataire ne réclame pas plus que son taux ne l'autorise.
-                ligne.statut = StatutLigne.CONCORDANTE if ligne.ecart_taux == 0 else StatutLigne.ECART_TAUX
-            elif approchante:
-                ligne.statut = StatutLigne.ECART_MONTANT
-            else:
-                ligne.statut = StatutLigne.SANS_PRESCRIPTION
-            ligne.save()
+        for cle, lignes in groupes.items():
+            attributions = _apparier(lignes, prescriptions.get(cle, []))
+            for ligne in lignes:
+                ligne.prescription = attributions.get(ligne.pk)
+                ligne.statut = self._statut_apres_rapprochement(ligne)
+                ligne.save()
 
         self.statut = StatutFacture.RAPPROCHEE
         self.save()
+
+    def _statut_apres_rapprochement(self, ligne):
+        prescription = ligne.prescription
+        if prescription is None:
+            return StatutLigne.SANS_PRESCRIPTION
+        if prescription.statut == StatutPrescription.REJETEE:
+            # Le prestataire facture un soin que la mutuelle a refusé de
+            # prendre en charge : à arbitrer, jamais à valider d'office.
+            return StatutLigne.PRESCRIPTION_REJETEE
+        if not self.prestataire.propose_nature(ligne.nature):
+            # Le prestataire a des tarifs détaillés mais aucun ne correspond
+            # à cette nature : il facture un soin qu'il n'est pas censé
+            # proposer — plus grave qu'un simple écart de montant ou de taux.
+            return StatutLigne.NATURE_NON_COUVERTE
+        if not ligne.beneficiaire_correspond():
+            # Matricule et date concordent, mais le nom écrit par le
+            # prestataire ne désigne pas le même bénéficiaire :
+            # potentiellement le mauvais ayant droit, ou pire.
+            return StatutLigne.BENEFICIAIRE_DIFFERENT
+        if prescription.montant_total == ligne.montant_soin:
+            # Le coût du soin concorde : reste à vérifier que le prestataire
+            # ne réclame pas plus que son taux ne l'autorise.
+            return StatutLigne.CONCORDANTE if ligne.ecart_taux == 0 else StatutLigne.ECART_TAUX
+        return StatutLigne.ECART_MONTANT
 
     def synthese(self):
         lignes = self.lignes.all()
@@ -467,8 +517,4 @@ class LigneFacture(models.Model):
         absent de l'autre reste, lui, un vrai désaccord."""
         if not self.prescription_id:
             return True
-        mots_factures = _mots_normalises(self.nom_beneficiaire)
-        mots_attendus = _mots_normalises(self.prescription.nom_beneficiaire)
-        if not mots_factures or not mots_attendus:
-            return True
-        return mots_factures <= mots_attendus or mots_attendus <= mots_factures
+        return _noms_correspondent(self.nom_beneficiaire, self.prescription.nom_beneficiaire)
