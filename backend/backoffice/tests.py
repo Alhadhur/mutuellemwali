@@ -2333,3 +2333,110 @@ class TableauDeBordActiviteDuMoisTest(BaseBackoffice):
 
         self.assertContains(reponse, "ORD-ANCIENNE")
         self.assertEqual(reponse.context["activite_mois"]["nombre_actes"], 1)
+
+
+class FactureTotalCorrigerTest(BaseBackoffice):
+    """Correction tracée du total annoncé, montant retenu et relevé pour le
+    prestataire."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.facture = Facture.objects.create(
+            prestataire=self.prestataire, numero="F-1", mois=1, annee=2026, montant_total_declare=12500
+        )
+        self.ligne = LigneFacture.objects.create(
+            facture=self.facture,
+            date_soin=date(2026, 1, 5),
+            matricule=self.agent.matricule,
+            nom_beneficiaire="Fatma Zahra",
+            nature="Consultation",
+            montant_soin=10000,
+            montant_reclame=8000,
+        )
+        self.url = reverse("backoffice:facture_total_corriger", args=[self.facture.pk])
+
+    def test_le_formulaire_rappelle_les_totaux(self):
+        reponse = self.client.get(self.url)
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, "12 500\u00a0KMF")
+        self.assertContains(reponse, "Erreur de saisie de notre part")
+
+    def test_la_correction_est_enregistree_et_affichee(self):
+        reponse = self.client.post(
+            self.url, {"montant_total_declare": "15200", "motif": "SAISIE", "commentaire": "12 500 au lieu de 15 200"}
+        )
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.facture.refresh_from_db()
+        self.assertEqual(self.facture.montant_total_declare, 15200)
+        self.assertEqual(self.facture.montant_total_declare_initial, 12500)
+        self.assertEqual(self.facture.total_corrige_par, self.rh)
+        detail = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.assertContains(detail, "était 12 500\u00a0KMF")
+        self.assertContains(detail, "12 500 au lieu de 15 200")
+
+    def test_motif_et_explication_sont_obligatoires(self):
+        reponse = self.client.post(self.url, {"montant_total_declare": "15200", "motif": "", "commentaire": ""})
+
+        self.assertEqual(reponse.status_code, 200)
+        self.facture.refresh_from_db()
+        self.assertEqual(self.facture.montant_total_declare, 12500)
+
+    def test_un_total_identique_est_refuse(self):
+        reponse = self.client.post(self.url, {"montant_total_declare": "12500", "motif": "SAISIE", "commentaire": "x"})
+
+        self.assertContains(reponse, "déjà le total enregistré")
+
+    def test_une_facture_validee_ne_se_corrige_pas(self):
+        self.facture.statut = StatutFacture.VALIDEE
+        self.facture.save()
+
+        reponse = self.client.post(self.url, {"montant_total_declare": "15200", "motif": "SAISIE", "commentaire": "x"})
+
+        self.assertRedirects(reponse, reverse("backoffice:facture_detail", args=[self.facture.pk]))
+        self.facture.refresh_from_db()
+        self.assertEqual(self.facture.montant_total_declare, 12500)
+
+    def test_la_direction_ne_corrige_pas(self):
+        self.client.force_login(self.direction)
+
+        reponse = self.client.post(self.url, {"montant_total_declare": "15200", "motif": "SAISIE", "commentaire": "x"})
+
+        self.assertEqual(reponse.status_code, 403)
+        self.facture.refresh_from_db()
+        self.assertEqual(self.facture.montant_total_declare, 12500)
+
+    def test_le_montant_retenu_est_affiche(self):
+        reponse = self.client.get(reverse("backoffice:facture_detail", args=[self.facture.pk]))
+
+        self.assertContains(reponse, "Retenu pour paiement")
+
+    def _corriger_ligne(self):
+        self.ligne.montant_reclame = 7000
+        self.ligne.corrigee_le = timezone.now()
+        self.ligne.save()
+
+    def test_le_releve_liste_ancien_et_nouveau_montant(self):
+        self._corriger_ligne()
+
+        reponse = self.client.get(reverse("backoffice:facture_releve", args=[self.facture.pk]))
+
+        self.assertEqual(reponse.status_code, 200)
+        self.assertContains(reponse, "Relevé des corrections")
+        self.assertContains(reponse, '<span class="barre">8 000\u00a0KMF</span>', html=False)
+        self.assertContains(reponse, "7 000\u00a0KMF")
+
+    def test_le_releve_s_exporte_en_csv(self):
+        self._corriger_ligne()
+
+        reponse = self.client.get(reverse("backoffice:facture_releve", args=[self.facture.pk]) + "?format=csv")
+
+        self.assertEqual(reponse["Content-Type"], "text/csv; charset=utf-8")
+        lignes = list(csv.reader(io.StringIO(reponse.content.decode("utf-8-sig")), delimiter=";"))
+        self.assertIn(["Total annoncé sur la facture (KMF)", "12500"], lignes)
+        donnees = [ligne for ligne in lignes if ligne and ligne[0] == "05/01/2026"]
+        self.assertEqual(len(donnees), 1)
+        self.assertEqual(donnees[0][6:9], ["8000", "7000", "-1000"])
+        self.assertEqual(donnees[0][9], "montant corrigé")

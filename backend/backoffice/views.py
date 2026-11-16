@@ -21,7 +21,8 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
+from django.utils.text import slugify
+from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView, View
 
 from accounts.models import Role, Utilisateur
 from beneficiaires.models import Agent, AyantDroit, LienParente, StatutVerification, TypeJustificatif
@@ -1420,6 +1421,8 @@ class FactureDetail(AccesBackoffice, DetailView):
         contexte["lignes"] = self.object.lignes.select_related("prescription", "facture", "corrigee_par")
         contexte["ecart"] = self.object.explication_ecart()
         contexte["ids_doublons"] = self.object.ids_doublons()
+        contexte["montant_retenu"] = self.object.montant_retenu
+        contexte["nombre_retenues"] = self.object.lignes_retenues().count()
         contexte["non_facturees"] = self.object.prescriptions_non_facturees()
         contexte["synthese"] = self.object.synthese()
         contexte["nombre_a_valider"] = self.object.lignes_concordantes_a_valider().count()
@@ -1704,6 +1707,128 @@ class FactureLigneSupprimer(LigneFactureMixin, AccesModification, View):
             ligne.delete()
             messages.success(request, f"Ligne supprimée ({description}). Relancez le rapprochement si besoin.")
         return redirect("backoffice:facture_detail", pk=pk)
+
+
+class FactureTotalCorriger(FormulaireBase, FormView):
+    """Corrige le total annoncé d'une facture non validée.
+
+    Le total d'origine reste enregistré, avec le motif, l'auteur et la date :
+    l'écran de la facture affiche « était X ». Ce que la mutuelle paie ne
+    dépend pas de ce total (voir Facture.montant_retenu) ; il ne sert que de
+    contrôle de cohérence avec les lignes."""
+
+    form_class = forms.FactureTotalCorrigerForm
+    titre = "Corriger le total annoncé"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.facture = get_object_or_404(Facture.objects.select_related("prestataire"), pk=kwargs["pk"])
+        if request.user.is_authenticated and self.test_func() and self.facture.statut == StatutFacture.VALIDEE:
+            messages.error(request, "Impossible de corriger le total : la facture est validée.")
+            return redirect("backoffice:facture_detail", pk=self.facture.pk)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["facture"] = self.facture
+        return kwargs
+
+    def get_initial(self):
+        return {"montant_total_declare": self.facture.montant_total_declare}
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        facture = self.facture
+        aide = f"Total enregistré : {affichage.kmf(facture.montant_total_declare)}"
+        if facture.total_corrige:
+            aide += f" (à la réception : {affichage.kmf(facture.montant_total_declare_initial)})"
+        aide += f" — somme réclamée sur les lignes : {affichage.kmf(facture.montant_total_lignes)}."
+        form.fields["montant_total_declare"].help_text = aide
+        return form
+
+    def get_success_url(self):
+        return reverse("backoffice:facture_detail", args=[self.facture.pk])
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        contexte["url_retour"] = self.get_success_url()
+        contexte["titre"] = f"{self.titre} — facture {self.facture.numero} ({self.facture.prestataire.nom})"
+        return contexte
+
+    def form_valid(self, form):
+        donnees = form.cleaned_data
+        self.facture.corriger_total(
+            donnees["montant_total_declare"], donnees["motif"], donnees["commentaire"].strip(), self.request.user
+        )
+        messages.success(self.request, "Total annoncé corrigé — le total d'origine reste affiché sur la facture.")
+        return redirect(self.get_success_url())
+
+
+def _colonnes_releve_corrections(ids_doublons):
+    def observation(ligne):
+        morceaux = []
+        if ligne.montants_corriges:
+            morceaux.append("montant corrigé")
+        if ligne.pk in ids_doublons:
+            morceaux.append("doublon probable : même soin facturé deux fois")
+        return " ; ".join(morceaux)
+
+    return (
+        ("Date du soin", "date_soin"),
+        ("Matricule", "matricule"),
+        ("Bénéficiaire", "nom_beneficiaire"),
+        ("Nature", "nature"),
+        ("Coût facturé (KMF)", "montant_soin_initial"),
+        ("Coût retenu (KMF)", "montant_soin"),
+        ("Réclamé facturé (KMF)", "montant_reclame_initial"),
+        ("Réclamé retenu (KMF)", "montant_reclame"),
+        ("Différence réclamée (KMF)", lambda ligne: ligne.correction_reclame),
+        ("Observation", observation),
+    )
+
+
+class FactureReleveCorrections(AccesBackoffice, DetailView):
+    """Relevé à adresser au prestataire : ses lignes que la mutuelle a
+    corrigées (ancien et nouveau montant) et celles facturées deux fois.
+    Page imprimable (ou à enregistrer en PDF), ou CSV avec ?format=csv."""
+
+    model = Facture
+    template_name = "backoffice/facture_releve.html"
+    context_object_name = "facture"
+
+    def get_context_data(self, **kwargs):
+        contexte = super().get_context_data(**kwargs)
+        facture = self.object
+        contexte["lignes"] = facture.lignes_a_signaler()
+        contexte["ids_doublons"] = facture.ids_doublons()
+        contexte["ecart"] = facture.explication_ecart()
+        contexte["date_edition"] = timezone.localdate()
+        return contexte
+
+    def render_to_response(self, context, **kwargs):
+        if self.request.GET.get("format") != "csv":
+            return super().render_to_response(context, **kwargs)
+        facture = self.object
+        ecart = context["ecart"]
+        entete = [
+            ["Relevé des corrections — facture", facture.numero],
+            ["Prestataire", f"{facture.prestataire.code} — {facture.prestataire.nom}"],
+            ["Période", f"{facture.get_mois_display()} {facture.annee}"],
+            ["Édité le", f"{timezone.localdate():%d/%m/%Y}"],
+            ["Total annoncé sur la facture (KMF)", ecart["total_initial"]],
+        ]
+        if facture.total_corrige:
+            entete.append(["Total annoncé après correction (KMF)", facture.montant_total_declare])
+        entete += [
+            ["Somme des lignes telles que facturées (KMF)", ecart["somme_initiale"]],
+            ["Somme des lignes après corrections (KMF)", facture.montant_total_lignes],
+            ["Montant retenu pour paiement à ce jour (KMF)", facture.montant_retenu],
+        ]
+        return exports.reponse_csv(
+            f"releve-corrections-{slugify(facture.numero)}.csv",
+            _colonnes_releve_corrections(context["ids_doublons"]),
+            context["lignes"],
+            entete,
+        )
 
 
 class FactureValider(AccesModification, View):

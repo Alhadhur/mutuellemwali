@@ -4,7 +4,7 @@ from django import forms
 
 from accounts.models import Utilisateur
 from beneficiaires.models import Agent, AyantDroit
-from facturation.models import MOIS, Facture, LigneFacture
+from facturation.models import MOIS, Facture, LigneFacture, MotifCorrectionTotal
 from parametrage.models import NatureSoin, Parametrage, TrancheQuota
 from prescriptions.models import Prescription
 from prestataires.models import Prestataire, TarifPrestataire
@@ -296,6 +296,29 @@ class FactureForm(forms.ModelForm):
         model = Facture
         fields = ["prestataire", "numero", "mois", "annee", "date_reception", "montant_total_declare", "fichier"]
         widgets = {"date_reception": DateInput}
+
+
+class FactureTotalCorrigerForm(forms.Form):
+    """Correction du total annoncé : motif et explication obligatoires, le
+    total d'origine reste conservé sur la facture."""
+
+    montant_total_declare = forms.IntegerField(label="Nouveau total réclamé à la mutuelle (KMF)", min_value=0)
+    motif = forms.ChoiceField(label="Motif", choices=[("", "— choisir —")] + MotifCorrectionTotal.choices)
+    commentaire = forms.CharField(
+        label="Explication",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Ex. : « 1 250 000 saisi au lieu de 1 520 000 » ou « facture rectificative n° … du … ».",
+    )
+
+    def __init__(self, *args, facture=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.facture = facture
+
+    def clean_montant_total_declare(self):
+        montant = self.cleaned_data["montant_total_declare"]
+        if self.facture is not None and montant == self.facture.montant_total_declare:
+            raise forms.ValidationError("C'est déjà le total enregistré.")
+        return montant
 
 
 class ImportFactureForm(forms.Form):

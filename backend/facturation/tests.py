@@ -799,3 +799,74 @@ class RapprochementMemeJourTest(BaseFacturation):
             )
 
         self.assertEqual(resultats[0], resultats[1])
+
+
+class CorrectionDuTotalTest(BaseFacturation):
+    """Le total annoncé se corrige en gardant celui d'origine ; ce que la
+    mutuelle paie est la somme des lignes validées, pas ce total."""
+
+    def test_le_total_d_origine_est_memorise_a_la_creation(self):
+        facture = self.facture(total=16000)
+
+        self.assertEqual(facture.montant_total_declare_initial, 16000)
+        self.assertFalse(facture.total_corrige)
+
+    def test_la_correction_garde_le_total_d_origine_et_sa_raison(self):
+        facture = self.facture(total=12500)
+
+        facture.corriger_total(15200, "SAISIE", "12 500 saisi au lieu de 15 200", self.rh)
+
+        facture.refresh_from_db()
+        self.assertEqual(facture.montant_total_declare, 15200)
+        self.assertEqual(facture.montant_total_declare_initial, 12500)
+        self.assertEqual(facture.total_corrige_par, self.rh)
+        self.assertEqual(facture.motif_correction_total, "SAISIE")
+        self.assertTrue(facture.total_corrige)
+
+    def test_une_facture_validee_ne_se_corrige_plus(self):
+        facture = self.facture(total=12500)
+        facture.statut = StatutFacture.VALIDEE
+        facture.save()
+
+        with self.assertRaises(ValueError):
+            facture.corriger_total(15200, "SAISIE", "x", self.rh)
+
+    def test_l_explication_separe_le_total_corrige_des_lignes(self):
+        facture = self.facture(total=12000)
+        self.ligne(facture, date(2026, 3, 5), 20000)  # réclame 16 000
+
+        facture.corriger_total(16000, "SAISIE", "faute de frappe", self.rh)
+        explication = facture.explication_ecart()
+
+        self.assertEqual(explication["ecart"], 0)
+        self.assertTrue(explication["total_corrige"])
+        self.assertEqual(explication["total_initial"], 12000)
+        self.assertEqual(explication["effet_total"], 4000)
+        # L'écart constaté à la réception reste celui du total d'origine.
+        self.assertEqual(explication["ecart_initial"], -4000)
+
+    def test_seules_les_lignes_validees_sont_retenues_pour_paiement(self):
+        self.declarer(date(2026, 3, 5), 10000, numero="ORD-1")
+        self.declarer(date(2026, 3, 6), 10000, numero="ORD-2")
+        facture = self.facture(total=99999)
+        self.ligne(facture, date(2026, 3, 5), 10000)  # concordante
+        self.ligne(facture, date(2026, 3, 6), 12000)  # écart de montant
+        self.ligne(facture, date(2026, 3, 7), 5000)  # sans prescription
+        facture.rapprocher()
+
+        self.assertEqual(facture.montant_retenu, 0)  # rien de validé encore
+        facture.valider_concordantes(self.rh)
+
+        self.assertEqual(facture.montant_retenu, 8000)
+
+    def test_les_lignes_a_signaler_sont_les_corrigees_et_les_doublons(self):
+        facture = self.facture()
+        self.ligne(facture, date(2026, 3, 5), 10000)
+        copie = self.ligne(facture, date(2026, 3, 5), 10000)
+        corrigee = self.ligne(facture, date(2026, 3, 6), 10000)
+        corrigee.montant_reclame = 7000
+        corrigee.corrigee_le = facture.date_creation
+        corrigee.save()
+        self.ligne(facture, date(2026, 3, 7), 10000)  # ni corrigée ni copie
+
+        self.assertEqual(facture.lignes_a_signaler(), [copie, corrigee])

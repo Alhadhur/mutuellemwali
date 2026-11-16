@@ -63,8 +63,29 @@
     <div><span>Prestataire</span><strong>{{ facture.prestataire.code }} — {{ facture.prestataire.nom }}</strong></div>
     <div><span>Période</span><strong>{{ facture.get_mois_display }} {{ facture.annee }}</strong></div>
     <div><span>Reçue le</span><strong>{{ facture.date_reception|date:"d/m/Y" }}</strong></div>
-    <div><span>Total réclamé (annoncé)</span><strong>{{ facture.montant_total_declare|kmf }}</strong></div>
+    <div>
+      <span>Total réclamé (annoncé)</span>
+      <strong>
+        {{ facture.montant_total_declare|kmf }}
+        {% if peut_modifier and facture.statut != 'VALIDEE' %}
+          <a class="btn btn-secondaire btn-icone btn-icone-discret" href="{% url 'backoffice:facture_total_corriger' facture.pk %}"
+             title="Corriger le total annoncé" aria-label="Corriger le total annoncé"><svg><use href="#icone-corriger"/></svg></a>
+        {% endif %}
+      </strong>
+      {% if facture.total_corrige %}
+        <span class="sous-ligne" title="{{ facture.commentaire_correction_total }}">
+          <span class="marque marque-corrigee">corrigé</span>
+          était {{ facture.montant_total_declare_initial|kmf }} — {{ facture.get_motif_correction_total_display|lower }},
+          par {{ facture.total_corrige_par.get_full_name|default:"—" }} le {{ facture.total_corrige_le|date:"d/m/Y" }}
+        </span>
+      {% endif %}
+    </div>
     <div><span>Somme réclamée sur les lignes</span><strong>{{ facture.montant_total_lignes|kmf }}</strong></div>
+    <div>
+      <span>Retenu pour paiement</span>
+      <strong style="color:var(--ok);">{{ montant_retenu|kmf }}</strong>
+      <span class="sous-ligne">{{ nombre_retenues }} ligne(s) concordante(s) dont la prescription est validée</span>
+    </div>
     <div>
       <span>Écart</span>
       <strong {% if facture.ecart_total %}style="color:var(--danger);"{% endif %}>{{ facture.ecart_total|kmf }}</strong>
@@ -91,6 +112,14 @@
             — exactement le total annoncé.
           {% endif %}
         </li>
+        {% if ecart.total_corrige %}
+          <li>
+            <span class="marque marque-corrigee">corrigé</span>
+            Le total annoncé a été corrigé de {{ ecart.total_initial|kmf }} à {{ facture.montant_total_declare|kmf }}
+            (<strong>{% if ecart.effet_total > 0 %}+{% endif %}{{ ecart.effet_total|kmf }}</strong>) :
+            {{ facture.get_motif_correction_total_display|lower }}{% if facture.commentaire_correction_total %} — « {{ facture.commentaire_correction_total }} »{% endif %}.
+          </li>
+        {% endif %}
         {% if ecart.nombre_corrigees %}
           <li>
             <span class="marque marque-corrigee">corrigée</span>
@@ -117,6 +146,12 @@
           </li>
         {% endif %}
       </ul>
+      {% if ecart.nombre_corrigees or ecart.nombre_doublons %}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;">
+          <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:facture_releve' facture.pk %}" target="_blank" rel="noopener">Relevé pour le prestataire (à imprimer)</a>
+          <a class="btn btn-secondaire btn-petit" href="{% url 'backoffice:facture_releve' facture.pk %}?format=csv">Relevé en CSV</a>
+        </div>
+      {% endif %}
       <div class="aide">
         Les montants d'origine ne sont conservés que depuis le 12/11/2026 : une correction faite avant cette
         date n'est pas repérée.

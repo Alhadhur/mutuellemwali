@@ -90,6 +90,11 @@ class StatutFacture(models.TextChoices):
     CONTESTEE = "CONTESTEE", "Contestée"
 
 
+class MotifCorrectionTotal(models.TextChoices):
+    SAISIE = "SAISIE", "Erreur de saisie de notre part"
+    RECTIFICATIVE = "RECTIFICATIVE", "Facture rectificative reçue du prestataire"
+
+
 class StatutLigne(models.TextChoices):
     A_RAPPROCHER = "A_RAPPROCHER", "À rapprocher"
     CONCORDANTE = "CONCORDANTE", "Concordante"
@@ -115,6 +120,20 @@ class Facture(models.Model):
     )
     fichier = models.FileField(upload_to="factures/", blank=True)
 
+    # Total tel que reçu : une correction de l'en-tête ne doit pas effacer ce
+    # que le prestataire a réellement annoncé (même principe que les montants
+    # initiaux des lignes).
+    montant_total_declare_initial = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    motif_correction_total = models.CharField(
+        max_length=20, choices=MotifCorrectionTotal.choices, blank=True, editable=False
+    )
+    commentaire_correction_total = models.TextField(blank=True, editable=False)
+    total_corrige_par = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="totaux_factures_corriges", editable=False,
+    )
+    total_corrige_le = models.DateTimeField(null=True, blank=True, editable=False)
+
     statut = models.CharField(max_length=20, choices=StatutFacture.choices, default=StatutFacture.RECUE)
     commentaire = models.TextField(blank=True)
 
@@ -139,6 +158,56 @@ class Facture(models.Model):
 
     def __str__(self):
         return f"{self.numero} — {self.prestataire.nom} ({self.get_mois_display()} {self.annee})"
+
+    def save(self, *args, **kwargs):
+        if self.montant_total_declare_initial is None:
+            self.montant_total_declare_initial = self.montant_total_declare
+        super().save(*args, **kwargs)
+
+    @property
+    def total_corrige(self):
+        return (
+            self.total_corrige_le is not None
+            and self.montant_total_declare_initial is not None
+            and self.montant_total_declare != self.montant_total_declare_initial
+        )
+
+    def corriger_total(self, nouveau_total, motif, commentaire, utilisateur):
+        """Remplace le total annoncé, en gardant celui d'origine et la raison.
+
+        Réservé aux factures non validées : une facture validée est la trace
+        d'une décision déjà prise."""
+        if self.statut == StatutFacture.VALIDEE:
+            raise ValueError("la facture est validée")
+        self.montant_total_declare = nouveau_total
+        self.motif_correction_total = motif
+        self.commentaire_correction_total = commentaire
+        self.total_corrige_par = utilisateur
+        self.total_corrige_le = timezone.now()
+        self.save()
+
+    def lignes_retenues(self):
+        """Lignes qui justifient un paiement : concordantes, et dont la
+        prescription a été validée. Une ligne en écart ne paie rien tant
+        qu'elle n'est pas résolue."""
+        return self.lignes.filter(
+            statut=StatutLigne.CONCORDANTE, prescription__statut=StatutPrescription.VALIDEE
+        )
+
+    @property
+    def montant_retenu(self):
+        """Ce que la mutuelle paie : la somme des lignes validées, et non le
+        total annoncé, qui ne sert que de contrôle."""
+        return self.lignes_retenues().aggregate(models.Sum("montant_reclame"))["montant_reclame__sum"] or 0
+
+    def lignes_a_signaler(self):
+        """Lignes à porter à la connaissance du prestataire : montants
+        corrigés depuis la réception, et copies probables d'une autre ligne."""
+        doublons = self.ids_doublons()
+        return [
+            ligne for ligne in self.lignes.order_by("date_soin", "matricule", "pk")
+            if ligne.montants_corriges or ligne.pk in doublons
+        ]
 
     @property
     def montant_total_lignes(self):
@@ -178,10 +247,19 @@ class Facture(models.Model):
         montant_doublons = sum(ligne.montant_reclame for ligne in lignes if ligne.pk in doublons)
         ecart = self.montant_total_declare - somme
         reste = ecart + montant_doublons
+        total_initial = (
+            self.montant_total_declare if self.montant_total_declare_initial is None
+            else self.montant_total_declare_initial
+        )
         return {
             "ecart": ecart,
+            "total_corrige": self.total_corrige,
+            "total_initial": total_initial,
+            "effet_total": self.montant_total_declare - total_initial,
             "somme_initiale": somme_initiale,
-            "ecart_initial": self.montant_total_declare - somme_initiale,
+            # Comparé au total tel que reçu : une correction de l'en-tête ne
+            # doit pas réécrire ce qui était annoncé à la réception.
+            "ecart_initial": total_initial - somme_initiale,
             "nombre_corrigees": len(corrigees),
             "effet_corrections": somme - somme_initiale,
             "nombre_doublons": len(doublons),

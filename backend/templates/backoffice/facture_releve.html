@@ -1,0 +1,116 @@
+{% load affichage %}<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relevé des corrections — facture {{ facture.numero }}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#111827; background:#fff;
+           margin:0; padding:28px; font-size:13px; }
+    h1 { font-size:19px; margin:0 0 4px; }
+    .sous-titre { color:#4b5563; margin-bottom:18px; }
+    .recap { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px 24px;
+             border:1px solid #d1d5db; border-radius:8px; padding:12px 14px; margin-bottom:18px; }
+    .recap span { display:block; font-size:11.5px; color:#6b7280; }
+    .recap strong { font-size:14px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border-bottom:1px solid #e5e7eb; padding:6px 8px; text-align:left; vertical-align:top; }
+    th { background:#f3f4f6; font-size:11.5px; text-transform:uppercase; letter-spacing:.02em; }
+    td.montant, th.montant { text-align:right; white-space:nowrap; }
+    .barre { text-decoration:line-through; color:#6b7280; }
+    .diff-neg { color:#b91c1c; font-weight:600; }
+    .diff-pos { color:#15803d; font-weight:600; }
+    tfoot td { font-weight:700; border-top:2px solid #9ca3af; }
+    .note { margin-top:16px; color:#4b5563; font-size:12px; }
+    .signature { margin-top:36px; display:flex; justify-content:space-between; gap:24px; }
+    .signature div { flex:1; border-top:1px solid #9ca3af; padding-top:6px; color:#4b5563; font-size:12px; }
+    .actions { margin-bottom:18px; display:flex; gap:8px; }
+    .actions a, .actions button { font:inherit; padding:7px 12px; border-radius:6px; border:1px solid #d1d5db;
+                                   background:#fff; color:#111827; text-decoration:none; cursor:pointer; }
+    .actions button { background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
+    @media print { .actions { display:none; } body { padding:0; } }
+  </style>
+</head>
+<body>
+  <div class="actions">
+    <button type="button" onclick="window.print()">Imprimer / enregistrer en PDF</button>
+    <a href="?format=csv">Télécharger en CSV</a>
+    <a href="{% url 'backoffice:facture_detail' facture.pk %}">← Retour à la facture</a>
+  </div>
+
+  <h1>Relevé des corrections — facture n° {{ facture.numero }}</h1>
+  <div class="sous-titre">
+    {{ facture.prestataire.nom }} ({{ facture.prestataire.code }}) — soins de {{ facture.get_mois_display|lower }} {{ facture.annee }}
+    — édité le {{ date_edition|date:"d/m/Y" }}
+  </div>
+
+  <div class="recap">
+    <div><span>Total annoncé sur votre facture</span><strong>{{ ecart.total_initial|kmf }}</strong></div>
+    {% if facture.total_corrige %}
+      <div><span>Total après correction ({{ facture.get_motif_correction_total_display|lower }})</span><strong>{{ facture.montant_total_declare|kmf }}</strong></div>
+    {% endif %}
+    <div><span>Somme des lignes telles que facturées</span><strong>{{ ecart.somme_initiale|kmf }}</strong></div>
+    <div><span>Somme des lignes après contrôle</span><strong>{{ facture.montant_total_lignes|kmf }}</strong></div>
+    <div><span>Retenu pour paiement à ce jour</span><strong>{{ facture.montant_retenu|kmf }}</strong></div>
+  </div>
+
+  {% if lignes %}
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>Matricule</th><th>Bénéficiaire</th><th>Nature</th>
+          <th class="montant">Coût du soin</th><th class="montant">Réclamé</th><th class="montant">Différence</th><th>Observation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ligne in lignes %}
+          <tr>
+            <td>{{ ligne.date_soin|date:"d/m/Y" }}</td>
+            <td>{{ ligne.matricule }}</td>
+            <td>{{ ligne.nom_beneficiaire }}</td>
+            <td>{{ ligne.nature|default:"—" }}</td>
+            <td class="montant">
+              {% if ligne.montant_soin != ligne.montant_soin_initial %}<span class="barre">{{ ligne.montant_soin_initial|kmf }}</span><br>{% endif %}
+              {{ ligne.montant_soin|kmf }}
+            </td>
+            <td class="montant">
+              {% if ligne.montant_reclame != ligne.montant_reclame_initial %}<span class="barre">{{ ligne.montant_reclame_initial|kmf }}</span><br>{% endif %}
+              {{ ligne.montant_reclame|kmf }}
+            </td>
+            <td class="montant">
+              {% with d=ligne.correction_reclame %}
+                {% if d %}<span class="{% if d < 0 %}diff-neg{% else %}diff-pos{% endif %}">{% if d > 0 %}+{% endif %}{{ d|kmf }}</span>{% else %}—{% endif %}
+              {% endwith %}
+            </td>
+            <td>
+              {% if ligne.montants_corriges %}Montant corrigé d'après les justificatifs{% endif %}
+              {% if ligne.montants_corriges and ligne.pk in ids_doublons %}<br>{% endif %}
+              {% if ligne.pk in ids_doublons %}Doublon probable : même soin déjà facturé sur une autre ligne{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="6">Variation due aux corrections</td>
+          <td class="montant">{% if ecart.effet_corrections > 0 %}+{% endif %}{{ ecart.effet_corrections|kmf }}</td>
+          <td>{% if ecart.nombre_doublons %}+ {{ ecart.nombre_doublons }} doublon(s) probable(s) pour {{ ecart.montant_doublons|kmf }}{% endif %}</td>
+        </tr>
+      </tfoot>
+    </table>
+  {% else %}
+    <p>Aucune ligne corrigée ni facturée en double sur cette facture.</p>
+  {% endif %}
+
+  <p class="note">
+    Les montants barrés sont ceux de votre facture ; les montants en dessous sont ceux retenus après contrôle.
+    Le paiement porte sur les lignes contrôlées et validées, et non sur le total annoncé.
+    Merci de nous faire parvenir une facture rectificative ou un avoir pour la différence, ou vos observations.
+  </p>
+
+  <div class="signature">
+    <div>Pour la mutuelle — nom, date et signature</div>
+    <div>Pour le prestataire — nom, date et signature</div>
+  </div>
+</body>
+</html>

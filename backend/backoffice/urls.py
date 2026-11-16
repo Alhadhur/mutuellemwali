@@ -72,6 +72,8 @@ urlpatterns = [
         views.FactureLigneSupprimer.as_view(),
         name="facture_ligne_supprimer",
     ),
+    path("factures/<int:pk>/total/corriger/", views.FactureTotalCorriger.as_view(), name="facture_total_corriger"),
+    path("factures/<int:pk>/releve-corrections/", views.FactureReleveCorrections.as_view(), name="facture_releve"),
     path("factures/<int:pk>/valider/", views.FactureValider.as_view(), name="facture_valider"),
     path(
         "factures/<int:pk>/valider-concordantes/",
