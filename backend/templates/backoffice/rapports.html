@@ -86,8 +86,12 @@
       <span class="compteur compteur--neutre">{{ tableau.nombre_total }}</span>
       <a class="btn btn-secondaire btn-petit lien-export"
          href="{% url 'backoffice:rapports_export_un' tableau.cle %}?debut={{ debut|date:'Y-m-d' }}&amp;fin={{ fin|date:'Y-m-d' }}">
-        Exporter
+        {% if tableau.export_excel %}Exporter (Excel){% else %}Exporter{% endif %}
       </a>
+      {% if tableau.export_excel %}
+        <a class="btn btn-secondaire btn-petit" style="margin-left:6px;" title="Données brutes, sans mise en forme"
+           href="{% url 'backoffice:rapports_export_un' tableau.cle %}?debut={{ debut|date:'Y-m-d' }}&amp;fin={{ fin|date:'Y-m-d' }}&amp;format=csv">CSV</a>
+      {% endif %}
     </h2>
     <div class="note-tableau">
       {{ tableau.description }}

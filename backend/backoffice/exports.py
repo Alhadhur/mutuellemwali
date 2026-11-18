@@ -40,6 +40,10 @@ def _formater(valeur_brute):
         return "oui" if valeur_brute else "non"
     if isinstance(valeur_brute, date):
         return valeur_brute.strftime("%d/%m/%Y")
+    if isinstance(valeur_brute, float):
+        # Virgule décimale : avec un point, Excel en français lit « 33.3 »
+        # comme du texte, voire comme une date.
+        return str(valeur_brute).replace(".", ",")
     return str(valeur_brute)
 
 
@@ -106,3 +110,80 @@ def reponse_csv_sections(nom_fichier, sections, entete=()):
         redacteur.writerow([])
 
     return reponse
+
+
+def reponse_xlsx(nom_fichier, tableau, lignes, debut, fin, edite_par, avertissement="", synthese=(), annexes=()):
+    """Classeur Excel d'un tableau, prêt à analyser.
+
+    Onglet 1 : le tableau seul sous un titre court — en-tête figé, filtre
+    automatique, milliers, pourcentages et dates formatés, totaux à part
+    (après une ligne vide, pour ne pas être triés avec les données).
+    Onglet 2 : la synthèse de la période et les `annexes` (autres petits
+    tableaux). Onglet 3 : le sens de chaque colonne.
+
+    `synthese` : suite de (libellé, valeur) ; `annexes` : suite de
+    (titre, colonnes, lignes) au même format que les tableaux.
+    """
+    from . import xlsx
+
+    classeur = xlsx.Classeur()
+    feuille = classeur.feuille(tableau.titre)
+    feuille.ajouter([tableau.titre], xlsx.TITRE)
+    feuille.ajouter(
+        [f"Période du {debut:%d/%m/%Y} au {fin:%d/%m/%Y} — édité le {timezone.localdate():%d/%m/%Y} par {edite_par}"],
+        xlsx.DISCRET,
+    )
+    if avertissement:
+        feuille.ajouter([avertissement], xlsx.AVERTISSEMENT)
+    feuille.ajouter()
+
+    libelles = [libelle for libelle, _ in tableau.colonnes]
+    styles = [xlsx.POURCENT if libelle.endswith("(%)") else None for libelle in libelles]
+    ligne_entete = feuille.ajouter(libelles, xlsx.ENTETE)
+    lignes = list(lignes)
+    for objet in lignes:
+        feuille.ajouter([valeur(objet, extracteur) for _, extracteur in tableau.colonnes], styles)
+    derniere = ligne_entete + len(lignes)
+    feuille.ligne_figee = ligne_entete
+    feuille.filtre = f"A{ligne_entete}:{xlsx.lettre_colonne(len(libelles) - 1)}{derniere}"
+
+    # Largeurs calculées avant la ligne de totaux, plus longue que les données.
+    feuille.ajuster_largeurs(a_partir_de=ligne_entete, maximum=30)
+    feuille.paysage = True
+
+    if tableau.colonnes_totalisees and lignes:
+        feuille.ajouter()
+        totaux = ["Total"] + [None] * (len(libelles) - 1)
+        styles_totaux = [xlsx.GRAS] + [xlsx.ENTIER_GRAS] * (len(libelles) - 1)
+        for indice, (_, extracteur) in enumerate(tableau.colonnes):
+            if extracteur in tableau.colonnes_totalisees:
+                totaux[indice] = sum(valeur(objet, extracteur) or 0 for objet in lignes)
+        feuille.ajouter(totaux, styles_totaux)
+
+    annexe = classeur.feuille("Synthèse")
+    annexe.ajouter(["Synthèse de la période"], xlsx.TITRE)
+    annexe.ajouter([f"Du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"], xlsx.DISCRET)
+    if avertissement:
+        annexe.ajouter([avertissement], xlsx.AVERTISSEMENT)
+    annexe.ajouter()
+    for libelle, montant in synthese:
+        annexe.ajouter([libelle, montant], [xlsx.NORMAL, None])
+    for titre, colonnes, lignes_annexe in annexes:
+        annexe.ajouter()
+        annexe.ajouter([titre], xlsx.GRAS)
+        annexe.ajouter([libelle for libelle, _ in colonnes], xlsx.ENTETE)
+        styles_annexe = [xlsx.POURCENT if libelle.endswith("(%)") else None for libelle, _ in colonnes]
+        for objet in lignes_annexe:
+            annexe.ajouter([valeur(objet, extracteur) for _, extracteur in colonnes], styles_annexe)
+    annexe.ajuster_largeurs(a_partir_de=4, maximum=45)
+    annexe.paysage = True
+    if tableau.definitions:
+        lexique = classeur.feuille("Sens des colonnes")
+        lexique.ajouter(["Sens des colonnes"], xlsx.TITRE)
+        lexique.ajouter()
+        lexique.ajouter(["Colonne", "Ce qu'elle mesure"], xlsx.ENTETE)
+        for libelle, sens in tableau.definitions:
+            lexique.ajouter([libelle, sens], [xlsx.GRAS, xlsx.NOTE])
+        lexique.largeurs = {0: 34, 1: 95}
+        lexique.paysage = True
+    return classeur.reponse(nom_fichier)

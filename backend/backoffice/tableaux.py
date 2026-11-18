@@ -35,6 +35,13 @@ class Tableau:
     # détail en gris dessous). L'export garde toujours `colonnes`, une valeur
     # par colonne, exploitable dans un tableur.
     colonnes_ecran: tuple[tuple[str, object], ...] | None = None
+    # Export en classeur Excel mis en forme (voir exports.reponse_xlsx), le
+    # CSV restant disponible avec ?format=csv.
+    export_excel: bool = False
+    # Colonnes totalisées en bas du classeur (clés des lignes).
+    colonnes_totalisees: tuple[str, ...] = ()
+    # Sens de chaque colonne, repris dans l'onglet « Synthèse » du classeur.
+    definitions: tuple[tuple[str, str], ...] = ()
 
     @property
     def colonnes_affichees(self):
@@ -234,12 +241,54 @@ RAPPORTS: tuple[Tableau, ...] = (
         ),
         source=rapports.frequence_par_agent,
         colonnes=(
+            ("Rang", "rang"),
+            ("Matricule", "matricule"),
+            ("Agent", "agent"),
+            ("Site", "site"),
+            ("Actes", "nombre"),
+            ("dont l'agent", "actes_agent"),
+            ("dont ayants droit", "actes_ayants_droit"),
+            ("Ayants droit soignés", "ayants_droit_soignes"),
+            ("Prestataires différents", "prestataires"),
+            ("Tranche d'assiduité", "tranche"),
+            ("Indice / moyenne", "indice"),
+            ("Part des actes (%)", "part_actes"),
+            ("Coût total (KMF)", "montant"),
+            ("Panier moyen (KMF)", "panier_moyen"),
+            ("Part du coût (%)", "part_montant"),
+            ("Part du coût cumulée (%)", "part_montant_cumulee"),
+            ("Part mutuelle validée (KMF)", "part_mutuelle"),
+            ("Validés", "validees"),
+            ("En attente", "en_attente"),
+            ("Rejetés", "rejetees"),
+            ("Premier acte", "premier_acte"),
+            ("Dernier acte", "dernier_acte"),
+        ),
+        colonnes_ecran=(
             ("Matricule", "matricule"),
             ("Agent", "agent"),
             ("Site", "site"),
             ("Actes", "nombre"),
             ("Coût total (KMF)", "montant"),
             ("Panier moyen (KMF)", "panier_moyen"),
+        ),
+        export_excel=True,
+        colonnes_totalisees=(
+            "nombre", "actes_agent", "actes_ayants_droit", "montant", "part_mutuelle",
+            "validees", "en_attente", "rejetees",
+        ),
+        definitions=(
+            ("Rang", "Classement par nombre d'actes, puis par coût."),
+            ("Actes", "Prescriptions de la période, quel que soit leur statut (rejets compris)."),
+            ("dont l'agent / dont ayants droit", "Qui a été soigné : l'agent lui-même, ou son conjoint et ses enfants."),
+            ("Ayants droit soignés", "Nombre de personnes différentes de la famille soignées."),
+            ("Prestataires différents", "Nombre d'établissements consultés : un chiffre élevé peut signaler un « nomadisme » médical."),
+            ("Tranche d'assiduité", "Même découpage que l'onglet Synthèse."),
+            ("Indice / moyenne", "Actes de l'agent ÷ moyenne des agents consommateurs. 2,00 = deux fois plus que la moyenne."),
+            ("Part des actes / du coût (%)", "Poids de l'agent dans l'ensemble de la période."),
+            ("Part du coût cumulée (%)", "Lecture Pareto : en filtrant ≤ 80, on voit combien d'agents font 80 % du coût."),
+            ("Part mutuelle validée", "Remboursement des seuls dossiers validés."),
+            ("Validés / En attente / Rejetés", "État des dossiers ; « en attente » regroupe soumis et en contrôle."),
         ),
         limite_ecran=20,
     ),

@@ -210,7 +210,7 @@ class ExportRapportsTest(BaseRapports):
         self.prescription(self.agent, 12000, statut=StatutPrescription.VALIDEE)
 
     def test_l_export_d_un_rapport_contient_ses_lignes(self):
-        reponse = self.client.get(reverse("backoffice:rapports_export_un", args=["frequence"]))
+        reponse = self.client.get(reverse("backoffice:rapports_export_un", args=["frequence"]) + "?format=csv")
 
         self.assertEqual(reponse.status_code, 200)
         contenu = reponse.content.decode("utf-8-sig")
@@ -237,11 +237,11 @@ class ExportRapportsTest(BaseRapports):
 
         export = list(csv.reader(
             io.StringIO(self.client.get(
-                reverse("backoffice:rapports_export_un", args=["frequence"])
+                reverse("backoffice:rapports_export_un", args=["frequence"]) + "?format=csv"
             ).content.decode("utf-8-sig")),
             delimiter=";",
         ))
-        lignes_export = [l for l in export if l and l[0] == "A0001"]
+        lignes_export = [l for l in export if len(l) > 1 and l[1] == "A0001"]
 
         self.assertEqual(len(tableau["lignes"]), len(lignes_export))
 
@@ -282,10 +282,10 @@ class FrequenceEcranLimiteeTest(BaseRapports):
         self.assertContains(reponse, "exportez le tableau complet")
 
     def test_l_export_garde_les_25_agents(self):
-        reponse = self.client.get(reverse("backoffice:rapports_export_un", args=["frequence"]))
+        reponse = self.client.get(reverse("backoffice:rapports_export_un", args=["frequence"]) + "?format=csv")
 
         lignes = list(csv.reader(io.StringIO(reponse.content.decode("utf-8-sig")), delimiter=";"))
-        matricules_exportes = {l[0] for l in lignes if l and l[0] in self.matricules}
+        matricules_exportes = {l[1] for l in lignes if len(l) > 1 and l[1] in self.matricules}
         self.assertEqual(matricules_exportes, set(self.matricules))
 
 
@@ -445,3 +445,127 @@ class ComparaisonEtEcranTest(BaseRapports):
 
         self.assertFalse(any(r["actif"] for r in reponse.context["raccourcis"]))
         self.assertIsNone(reponse.context["comparaison"])
+
+
+class FrequenceAnalyseTest(BaseRapports):
+    """Les colonnes d'analyse de la fréquence par agent."""
+
+    def setUp(self):
+        super().setUp()
+        enfant = AyantDroit.objects.create(
+            agent=self.agent, nom="Zahra", prenom="Ali",
+            date_naissance=date(2015, 1, 1), lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE, justificatif="a.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
+        self.prescription(self.agent, 6000, statut=StatutPrescription.VALIDEE, jours=3)
+        self.prescription(self.agent, 4000, ayant_droit=enfant, prestataire=self.clinique, jours=1)
+        self.prescription(self.agent, 2000, ayant_droit=enfant, statut=StatutPrescription.REJETEE)
+        self.prescription(self.autre_agent, 8000)
+
+    def test_detail_de_l_agent_le_plus_consommateur(self):
+        premier = services.frequence_par_agent(*self.periode())[0]
+
+        self.assertEqual(premier["rang"], 1)
+        self.assertEqual(premier["matricule"], "A0001")
+        self.assertEqual(premier["nombre"], 3)
+        self.assertEqual((premier["actes_agent"], premier["actes_ayants_droit"]), (1, 2))
+        self.assertEqual(premier["ayants_droit_soignes"], 1)
+        self.assertEqual(premier["prestataires"], 2)
+        self.assertEqual((premier["validees"], premier["en_attente"], premier["rejetees"]), (1, 1, 1))
+        self.assertEqual(premier["part_mutuelle"], 4800)  # 80 % des seuls 6 000 validés
+        self.assertEqual(premier["tranche"], "3 à 5 actes")
+        self.assertEqual(premier["premier_acte"], date.today() - timedelta(days=3))
+        self.assertEqual(premier["dernier_acte"], date.today())
+
+    def test_parts_indice_et_cumul(self):
+        premier, second = services.frequence_par_agent(*self.periode())
+
+        self.assertEqual(premier["part_actes"], 75.0)
+        self.assertEqual(premier["indice"], 1.5)  # 3 actes pour une moyenne de 2
+        self.assertEqual(premier["part_montant"], 60.0)  # 12 000 sur 20 000
+        self.assertEqual(second["part_montant_cumulee"], 100.0)
+
+
+class ExportFrequenceExcelTest(BaseRapports):
+    """Le rapport de fréquence s'exporte en classeur Excel mis en forme."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.prescription(self.agent, 12000, statut=StatutPrescription.VALIDEE)
+        self.prescription(self.autre_agent, 3000)
+
+    def _classeur(self):
+        import zipfile
+
+        reponse = self.client.get(reverse("backoffice:rapports_export_un", args=["frequence"]))
+        self.assertEqual(
+            reponse["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        self.assertIn(".xlsx", reponse["Content-Disposition"])
+        archive = zipfile.ZipFile(io.BytesIO(reponse.content))
+        return {nom: archive.read(nom).decode("utf-8") for nom in archive.namelist()}
+
+    def test_trois_onglets_bien_nommes(self):
+        classeur = self._classeur()["xl/workbook.xml"]
+
+        for nom in ("Fréquence des consultations par", "Synthèse", "Sens des colonnes"):
+            self.assertIn(nom, classeur)
+
+    def test_le_tableau_est_filtrable_fige_et_formate(self):
+        feuille = self._classeur()["xl/worksheets/sheet1.xml"]
+
+        self.assertIn('state="frozen"', feuille)
+        self.assertIn("<autoFilter ref=", feuille)
+        self.assertIn("A0001", feuille)
+        # Montants en nombres (pas en texte), triables et sommables.
+        self.assertIn("<v>12000</v>", feuille)
+        self.assertIn('orientation="landscape"', feuille)
+
+    def test_les_totaux_sont_hors_du_filtre(self):
+        import re
+
+        feuille = self._classeur()["xl/worksheets/sheet1.xml"]
+        derniere_filtree = int(re.search(r'<autoFilter ref="A\d+:[A-Z]+(\d+)"', feuille).group(1))
+        ligne_total = int(re.search(r'<c r="A(\d+)" s="\d+" t="inlineStr"><is><t xml:space="preserve">Total<', feuille).group(1))
+
+        self.assertGreater(ligne_total, derniere_filtree + 1)
+        self.assertIn("<v>15000</v>", feuille)  # coût total des deux agents
+
+    def test_la_synthese_reprend_la_repartition(self):
+        synthese = self._classeur()["xl/worksheets/sheet2.xml"]
+
+        self.assertIn("Coût total des soins (KMF)", synthese)
+        self.assertIn("Répartition des agents par assiduité", synthese)
+
+    def test_le_csv_reste_disponible(self):
+        reponse = self.client.get(
+            reverse("backoffice:rapports_export_un", args=["frequence"]) + "?format=csv"
+        )
+
+        self.assertEqual(reponse["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("Part des actes (%)", reponse.content.decode("utf-8-sig"))
+
+    def test_l_ecran_garde_six_colonnes_et_propose_les_deux_formats(self):
+        reponse = self.client.get(reverse("backoffice:rapports"))
+        tableau = next(t for t in reponse.context["tableaux"] if t["cle"] == "frequence")
+
+        self.assertEqual(len(tableau["colonnes"]), 6)
+        self.assertContains(reponse, "Exporter (Excel)")
+        self.assertContains(reponse, "format=csv")
+
+
+class ClasseurXlsxTest(TestCase):
+    def test_lettres_de_colonnes(self):
+        from backoffice.xlsx import lettre_colonne
+
+        self.assertEqual([lettre_colonne(i) for i in (0, 25, 26, 27, 701, 702)], ["A", "Z", "AA", "AB", "ZZ", "AAA"])
+
+    def test_le_texte_est_echappe(self):
+        from backoffice.xlsx import Feuille
+
+        feuille = Feuille("Essai")
+        feuille.ajouter(["<Dupont & fils>"])
+
+        self.assertIn("&lt;Dupont &amp; fils&gt;", feuille.xml())

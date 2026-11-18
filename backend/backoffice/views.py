@@ -2457,6 +2457,7 @@ class RapportsView(AccesBackoffice, TemplateView):
                     ],
                     "nombre_total": nombre_total,
                     "tronque": bool(tableau.limite_ecran) and nombre_total > tableau.limite_ecran,
+                    "export_excel": tableau.export_excel,
                 }
             )
         contexte["tableaux"] = tableaux_contexte
@@ -2501,6 +2502,31 @@ class RapportsExport(AccesBackoffice, View):
         tableau = tableaux.RAPPORTS_PAR_CLE.get(rapport)
         if tableau is None:
             raise Http404("Rapport inconnu.")
+        if tableau.export_excel and request.GET.get("format") != "csv":
+            return exports.reponse_xlsx(
+                exports.nom_de_fichier(f"rapport-{tableau.cle}", debut, fin).replace(".csv", ".xlsx"),
+                tableau,
+                tableau.lignes(debut, fin),
+                debut,
+                fin,
+                request.user.get_full_name(),
+                avertissement=provisoire or "",
+                synthese=(
+                    ("Actes enregistrés", synthese["nombre_actes"]),
+                    ("Agents ayant consommé", synthese["nombre_agents_consommateurs"]),
+                    ("Agents actifs", synthese["nombre_agents_actifs"]),
+                    ("Coût total des soins (KMF)", synthese["cout_total_soins"]),
+                    ("Part mutuelle validée (KMF)", synthese["part_mutuelle"]),
+                    ("Part mutuelle en attente, estimation (KMF)", synthese["part_mutuelle_en_attente"]),
+                    ("Part agents (KMF)", synthese["part_agents"]),
+                    ("Panier moyen (KMF)", synthese["panier_moyen"]),
+                ),
+                annexes=[
+                    (annexe.titre, annexe.colonnes, annexe.lignes(debut, fin))
+                    for annexe in tableaux.RAPPORTS
+                    if annexe.cle == "distribution"
+                ],
+            )
         return exports.reponse_csv(
             exports.nom_de_fichier(f"rapport-{tableau.cle}", debut, fin),
             tableau.colonnes,

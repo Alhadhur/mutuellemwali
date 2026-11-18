@@ -77,9 +77,23 @@ def activite_globale(debut, fin):
     }
 
 
+def tranche_frequence(nombre):
+    for libelle, mini, maxi in TRANCHES_FREQUENCE:
+        if nombre >= mini and (maxi is None or nombre <= maxi):
+            return libelle
+    return ""
+
+
 def frequence_par_agent(debut, fin):
-    """Nombre d'actes par agent, du plus consommateur au moins consommateur."""
-    lignes = (
+    """Nombre d'actes par agent, du plus consommateur au moins consommateur.
+
+    Au-delà du simple compte, chaque ligne porte de quoi l'analyser dans un
+    tableur : qui a été soigné (l'agent ou ses ayants droit), chez combien de
+    prestataires, où en sont les dossiers, et le poids de l'agent dans
+    l'ensemble (part, part cumulée, indice par rapport à la moyenne)."""
+    from django.db.models import Max, Min
+
+    lignes = list(
         _prescriptions(debut, fin)
         .values(
             "agent",
@@ -88,20 +102,64 @@ def frequence_par_agent(debut, fin):
             "agent__utilisateur__prenom",
             "agent__site",
         )
-        .annotate(nombre=Count("id"), montant=Sum("montant_total"))
-        .order_by("-nombre", "-montant")
+        .annotate(
+            nombre=Count("id"),
+            montant=Sum("montant_total"),
+            actes_agent=Count("id", filter=Q(ayant_droit__isnull=True)),
+            actes_ayants_droit=Count("id", filter=Q(ayant_droit__isnull=False)),
+            ayants_droit_soignes=Count("ayant_droit", distinct=True),
+            prestataires=Count("prestataire", distinct=True),
+            part_mutuelle=Sum("montant_rembourse", filter=Q(statut=StatutPrescription.VALIDEE)),
+            validees=Count("id", filter=Q(statut=StatutPrescription.VALIDEE)),
+            rejetees=Count("id", filter=Q(statut=StatutPrescription.REJETEE)),
+            en_attente=Count(
+                "id", filter=Q(statut__in=(StatutPrescription.SOUMISE, StatutPrescription.EN_CONTROLE))
+            ),
+            premier_acte=Min("date_emission"),
+            dernier_acte=Max("date_emission"),
+        )
+        .order_by("-nombre", "-montant", "agent__utilisateur__matricule")
     )
-    return [
-        {
-            "matricule": ligne["agent__utilisateur__matricule"],
-            "agent": f"{ligne['agent__utilisateur__prenom']} {ligne['agent__utilisateur__nom']}".strip(),
-            "site": ligne["agent__site"],
-            "nombre": ligne["nombre"],
-            "montant": ligne["montant"] or 0,
-            "panier_moyen": round((ligne["montant"] or 0) / ligne["nombre"]),
-        }
-        for ligne in lignes
-    ]
+    total_actes = sum(ligne["nombre"] for ligne in lignes)
+    total_montant = sum(ligne["montant"] or 0 for ligne in lignes)
+    moyenne_actes = total_actes / len(lignes) if lignes else 0
+
+    def part(valeur, total):
+        return round(100 * valeur / total, 1) if total else 0.0
+
+    resultats, cumul = [], 0
+    for rang, ligne in enumerate(lignes, start=1):
+        montant = ligne["montant"] or 0
+        cumul += montant
+        resultats.append(
+            {
+                "rang": rang,
+                "matricule": ligne["agent__utilisateur__matricule"],
+                "agent": f"{ligne['agent__utilisateur__prenom']} {ligne['agent__utilisateur__nom']}".strip(),
+                "site": ligne["agent__site"],
+                "nombre": ligne["nombre"],
+                "actes_agent": ligne["actes_agent"],
+                "actes_ayants_droit": ligne["actes_ayants_droit"],
+                "ayants_droit_soignes": ligne["ayants_droit_soignes"],
+                "prestataires": ligne["prestataires"],
+                "tranche": tranche_frequence(ligne["nombre"]),
+                # 2,0 = deux fois plus d'actes que l'agent consommateur moyen.
+                "indice": round(ligne["nombre"] / moyenne_actes, 2) if moyenne_actes else 0.0,
+                "part_actes": part(ligne["nombre"], total_actes),
+                "montant": montant,
+                "panier_moyen": round(montant / ligne["nombre"]),
+                "part_montant": part(montant, total_montant),
+                # Lecture « Pareto » : combien d'agents font 80 % du coût.
+                "part_montant_cumulee": part(cumul, total_montant),
+                "part_mutuelle": ligne["part_mutuelle"] or 0,
+                "validees": ligne["validees"],
+                "en_attente": ligne["en_attente"],
+                "rejetees": ligne["rejetees"],
+                "premier_acte": ligne["premier_acte"],
+                "dernier_acte": ligne["dernier_acte"],
+            }
+        )
+    return resultats
 
 
 def distribution_frequence(debut, fin):
