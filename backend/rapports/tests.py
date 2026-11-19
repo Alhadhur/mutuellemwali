@@ -569,3 +569,109 @@ class ClasseurXlsxTest(TestCase):
         feuille.ajouter(["<Dupont & fils>"])
 
         self.assertIn("&lt;Dupont &amp; fils&gt;", feuille.xml())
+
+
+class ConsommationQuotasParAgentTest(BaseRapports):
+    """Quota consommé et restant de chaque agent, sur le cycle en cours."""
+
+    def setUp(self):
+        super().setUp()
+        from parametrage.models import Parametrage
+
+        self.parametres = Parametrage.charger()
+        self.enveloppe = self.agent.quota_effectif
+        self.enfant = AyantDroit.objects.create(
+            agent=self.agent, nom="Zahra", prenom="Ali",
+            date_naissance=date(2015, 1, 1), lien_parente=LienParente.ENFANT,
+            type_justificatif=TypeJustificatif.ACTE_NAISSANCE, justificatif="a.jpg",
+            statut_verification=StatutVerification.VALIDE,
+        )
+        self.enveloppe = self.agent.quota_effectif  # avec l'enfant couvert
+        self.prescription(self.agent, 10000, statut=StatutPrescription.VALIDEE)  # 8 000
+        self.prescription(self.agent, 5000, ayant_droit=self.enfant, statut=StatutPrescription.VALIDEE)  # 4 000
+        self.prescription(self.agent, 2500)  # 2 000 en attente
+        self.prescription(self.agent, 50000, statut=StatutPrescription.REJETEE)
+
+    def _ligne(self, matricule):
+        return next(l for l in services.consommation_quotas_par_agent() if l["matricule"] == matricule)
+
+    def test_consomme_et_restant_comme_sur_la_fiche_de_l_agent(self):
+        ligne = self._ligne("A0001")
+
+        self.assertEqual(ligne["quota"], self.enveloppe)
+        self.assertEqual(ligne["consomme"], 12000)
+        self.assertEqual(ligne["solde"], self.agent.solde_quota())
+        self.assertEqual((ligne["consomme_agent"], ligne["consomme_ayants_droit"]), (8000, 4000))
+        self.assertEqual(ligne["composition"], "agent + 1 enfant(s)")
+
+    def test_les_dossiers_en_attente_sont_a_part(self):
+        ligne = self._ligne("A0001")
+
+        self.assertEqual((ligne["attente"], ligne["actes_en_attente"]), (2000, 1))
+        self.assertEqual(ligne["solde_apres_attente"], ligne["solde"] - 2000)
+        self.assertEqual(ligne["actes_valides"], 2)
+
+    def test_un_agent_sans_soin_figure_comme_non_entame(self):
+        ligne = self._ligne("A0002")
+
+        self.assertEqual(ligne["consomme"], 0)
+        self.assertEqual(ligne["etat"], "Non entamé")
+        self.assertEqual(ligne["part_restante"], 100.0)
+
+    def test_un_depassement_est_signale_et_le_restant_en_pourcentage_borne(self):
+        self.prescription(self.autre_agent, self.autre_agent.quota_effectif * 2, statut=StatutPrescription.VALIDEE)
+
+        ligne = self._ligne("A0002")
+
+        self.assertEqual(ligne["etat"], "Dépassé")
+        self.assertLess(ligne["solde"], 0)
+        self.assertEqual(ligne["part_restante"], 0.0)
+        # Le plus consommé (en %) vient en tête.
+        self.assertEqual(services.consommation_quotas_par_agent()[0]["matricule"], "A0002")
+
+    def test_un_depassement_probable_par_les_dossiers_en_attente(self):
+        reste = self.autre_agent.quota_effectif
+        self.prescription(self.autre_agent, round(reste * 0.25 / 0.8), statut=StatutPrescription.VALIDEE)
+        self.prescription(self.autre_agent, reste * 2)  # en attente, ferait dépasser
+
+        self.assertEqual(self._ligne("A0002")["etat"], "Dépassement probable (dossiers en attente)")
+
+    def test_synthese(self):
+        chiffres = dict(services.synthese_quotas(services.consommation_quotas_par_agent()))
+
+        self.assertEqual(chiffres["Agents actifs"], 2)
+        self.assertEqual(chiffres["Consommé (KMF)"], 12000)
+        self.assertEqual(chiffres["Agents n'ayant pas entamé leur quota"], 1)
+
+
+class ExportQuotasExcelTest(BaseRapports):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.rh)
+        self.prescription(self.agent, 10000, statut=StatutPrescription.VALIDEE)
+
+    def test_le_classeur_porte_le_cycle_et_les_agents(self):
+        import zipfile
+
+        from parametrage.models import Parametrage
+
+        reponse = self.client.get(reverse("backoffice:rapports_export_un", args=["quotas_agents"]))
+
+        self.assertIn(".xlsx", reponse["Content-Disposition"])
+        archive = zipfile.ZipFile(io.BytesIO(reponse.content))
+        feuille = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        synthese = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+        debut, fin = Parametrage.charger().periode()
+        self.assertIn(f"Cycle de quota en cours du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}", feuille)
+        self.assertIn("A0001", feuille)
+        self.assertIn("A0002", feuille)  # agent sans soin : il figure aussi
+        self.assertIn("<v>8000</v>", feuille)
+        self.assertIn("Agents ayant dépassé leur quota", synthese)
+        self.assertIn("Utilisation des quotas", synthese)
+
+    def test_l_ecran_affiche_le_tableau(self):
+        reponse = self.client.get(reverse("backoffice:rapports"))
+
+        self.assertContains(reponse, "Consommation des quotas par agent")
+        tableau = next(t for t in reponse.context["tableaux"] if t["cle"] == "quotas_agents")
+        self.assertEqual(tableau["nombre_total"], 2)

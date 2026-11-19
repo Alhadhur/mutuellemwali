@@ -350,6 +350,121 @@ def utilisation_des_quotas(debut=None, fin=None):
     ]
 
 
+def consommation_quotas_par_agent():
+    """Quota consommé et restant de chaque agent actif sur le cycle en cours.
+
+    Même règle que la fiche de l'agent (Agent.solde_quota) : seules les
+    prescriptions **validées** entament l'enveloppe, à hauteur de la part
+    mutuelle, soins des ayants droit compris. Les dossiers encore en attente
+    sont montrés à part, avec le solde qu'il resterait s'ils étaient tous
+    validés : c'est ce qui permet d'anticiper un dépassement.
+
+    Trié du plus consommé (en %) au moins consommé."""
+    from django.db.models import Max
+
+    from anomalies.services import _etat_quotas_agents
+    from parametrage.models import Parametrage
+
+    parametres = Parametrage.charger()
+    debut, fin = parametres.periode()
+    seuil = parametres.seuil_alerte_quota
+    en_attente = (StatutPrescription.SOUMISE, StatutPrescription.EN_CONTROLE)
+    detail = {
+        ligne["agent"]: ligne
+        for ligne in Prescription.objects.filter(
+            date_emission__gte=debut, date_emission__lte=fin, agent__actif=True
+        )
+        .values("agent")
+        .annotate(
+            consomme_agent=Sum(
+                "montant_rembourse", filter=Q(statut=StatutPrescription.VALIDEE, ayant_droit__isnull=True)
+            ),
+            consomme_ayants_droit=Sum(
+                "montant_rembourse", filter=Q(statut=StatutPrescription.VALIDEE, ayant_droit__isnull=False)
+            ),
+            actes_valides=Count("id", filter=Q(statut=StatutPrescription.VALIDEE)),
+            attente=Sum("montant_rembourse", filter=Q(statut__in=en_attente)),
+            actes_en_attente=Count("id", filter=Q(statut__in=en_attente)),
+            dernier_valide=Max("date_emission", filter=Q(statut=StatutPrescription.VALIDEE)),
+        )
+    }
+
+    resultats = []
+    for etat in _etat_quotas_agents():
+        agent, quota, solde = etat["agent"], etat["quota"], etat["solde"]
+        ligne = detail.get(agent.pk, {})
+        consomme = quota - solde
+        attente = ligne.get("attente") or 0
+        part_consommee = round(100 * consomme / quota, 1) if quota else 0.0
+        if consomme == 0:
+            etat_quota = "Non entamé"
+        elif solde < 0:
+            etat_quota = "Dépassé"
+        elif quota and 100 * solde / quota <= seuil:
+            etat_quota = "Seuil d'alerte atteint"
+        elif solde - attente < 0:
+            etat_quota = "Dépassement probable (dossiers en attente)"
+        else:
+            etat_quota = "Dans l'enveloppe"
+        composition = ["agent"]
+        if etat["avec_conjoint"]:
+            composition.append("conjoint")
+        if etat["nombre_enfants"]:
+            composition.append(f"{etat['nombre_enfants']} enfant(s)")
+        resultats.append(
+            {
+                "matricule": agent.matricule,
+                "agent": agent.utilisateur.get_full_name(),
+                "site": agent.site,
+                "composition": " + ".join(composition),
+                "quota_mensuel": etat["quota_mensuel"],
+                "quota": quota,
+                "consomme": consomme,
+                "consomme_agent": ligne.get("consomme_agent") or 0,
+                "consomme_ayants_droit": ligne.get("consomme_ayants_droit") or 0,
+                "solde": solde,
+                "part_consommee": part_consommee,
+                # Borné à 0 : au-delà, l'état « Dépassé » et le restant
+                # négatif en KMF disent déjà de combien.
+                "part_restante": max(0.0, round(100 - part_consommee, 1)) if quota else 0.0,
+                "etat": etat_quota,
+                "actes_valides": ligne.get("actes_valides") or 0,
+                "dernier_valide": ligne.get("dernier_valide"),
+                "attente": attente,
+                "actes_en_attente": ligne.get("actes_en_attente") or 0,
+                "solde_apres_attente": solde - attente,
+            }
+        )
+    resultats.sort(key=lambda r: (-r["part_consommee"], r["matricule"]))
+    return resultats
+
+
+def synthese_quotas(lignes):
+    """Chiffres d'ensemble du rapport par agent, pour l'onglet Synthèse."""
+    enveloppe = sum(ligne["quota"] for ligne in lignes)
+    consomme = sum(ligne["consomme"] for ligne in lignes)
+    etats = Counter(ligne["etat"] for ligne in lignes)
+    return (
+        ("Agents actifs", len(lignes)),
+        ("Enveloppe totale du cycle (KMF)", enveloppe),
+        ("Consommé (KMF)", consomme),
+        ("Restant (KMF)", enveloppe - consomme),
+        ("Part consommée (%)", round(100 * consomme / enveloppe, 1) if enveloppe else 0.0),
+        ("En attente de validation (KMF)", sum(ligne["attente"] for ligne in lignes)),
+        ("Agents ayant dépassé leur quota", etats["Dépassé"]),
+        ("Agents au seuil d'alerte", etats["Seuil d'alerte atteint"]),
+        ("Agents en dépassement probable", etats["Dépassement probable (dossiers en attente)"]),
+        ("Agents n'ayant pas entamé leur quota", etats["Non entamé"]),
+    )
+
+
+def cycle_de_quota():
+    """Bornes du cycle de quota en cours, pour les titres d'écran et d'export."""
+    from parametrage.models import Parametrage
+
+    return Parametrage.charger().periode()
+
+
 def activite_du_service(debut, fin):
     """Ce que le service mutuelle a traité, et en combien de temps.
 

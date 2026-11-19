@@ -42,6 +42,11 @@ class Tableau:
     colonnes_totalisees: tuple[str, ...] = ()
     # Sens de chaque colonne, repris dans l'onglet « Synthèse » du classeur.
     definitions: tuple[tuple[str, str], ...] = ()
+    # Onglet « Synthèse » du classeur : chiffres propres à ce rapport (suite
+    # de (libellé, valeur), calculée à partir des lignes) — à défaut, la
+    # synthèse d'activité de la période — et autres rapports joints (clés).
+    synthese_export: Callable | None = None
+    annexes_export: tuple[str, ...] = ()
 
     @property
     def colonnes_affichees(self):
@@ -290,6 +295,7 @@ RAPPORTS: tuple[Tableau, ...] = (
             ("Part mutuelle validée", "Remboursement des seuls dossiers validés."),
             ("Validés / En attente / Rejetés", "État des dossiers ; « en attente » regroupe soumis et en contrôle."),
         ),
+        annexes_export=("distribution",),
         limite_ecran=20,
     ),
     Tableau(
@@ -401,6 +407,66 @@ RAPPORTS: tuple[Tableau, ...] = (
             ("Tranche de consommation", "tranche"),
             ("Agents", "agents"),
             ("Part de l'effectif (%)", "part"),
+        ),
+    ),
+    Tableau(
+        cle="quotas_agents",
+        titre="Consommation des quotas par agent",
+        description=(
+            "Pour chaque agent actif : enveloppe du cycle en cours, part consommée "
+            "par les prescriptions validées (soins des ayants droit compris) et "
+            "solde restant, du plus consommé au moins consommé. Les dossiers en "
+            "attente sont montrés à part, avec le solde après leur validation."
+        ),
+        source=rapports.consommation_quotas_par_agent,
+        suit_la_periode=False,
+        limite_ecran=20,
+        colonnes=(
+            ("Matricule", "matricule"),
+            ("Agent", "agent"),
+            ("Site", "site"),
+            ("Famille couverte", "composition"),
+            ("Quota mensuel (KMF)", "quota_mensuel"),
+            ("Enveloppe du cycle (KMF)", "quota"),
+            ("Consommé (KMF)", "consomme"),
+            ("dont l'agent (KMF)", "consomme_agent"),
+            ("dont ayants droit (KMF)", "consomme_ayants_droit"),
+            ("Restant (KMF)", "solde"),
+            ("Consommé (%)", "part_consommee"),
+            ("Restant (%)", "part_restante"),
+            ("État", "etat"),
+            ("Actes validés", "actes_valides"),
+            ("Dernier acte validé", "dernier_valide"),
+            ("En attente de validation (KMF)", "attente"),
+            ("Dossiers en attente", "actes_en_attente"),
+            ("Restant si tout est validé (KMF)", "solde_apres_attente"),
+        ),
+        colonnes_ecran=(
+            ("Agent", lambda o: format_html('{}<span class="sous-ligne">{}</span>', o["agent"], o["matricule"])),
+            ("Enveloppe (KMF)", "quota"),
+            ("Consommé (KMF)", "consomme"),
+            ("Restant (KMF)", "solde"),
+            ("Consommé (%)", "part_consommee"),
+            ("En attente (KMF)", "attente"),
+            ("État", "etat"),
+        ),
+        export_excel=True,
+        colonnes_totalisees=(
+            "quota", "consomme", "consomme_agent", "consomme_ayants_droit", "solde",
+            "actes_valides", "attente", "actes_en_attente", "solde_apres_attente",
+        ),
+        synthese_export=lambda lignes: rapports.synthese_quotas(lignes),
+        annexes_export=("quotas",),
+        definitions=(
+            ("Famille couverte", "Ayants droit vérifiés et encore couverts, qui fixent la tranche du barème."),
+            ("Enveloppe du cycle", "Quota mensuel du barème × durée du cycle ; partagée par toute la famille."),
+            ("Consommé", "Part mutuelle des prescriptions validées du cycle, soins des ayants droit compris."),
+            ("Restant", "Enveloppe − consommé. Négatif : quota dépassé."),
+            ("État", "Non entamé, Dans l'enveloppe, Seuil d'alerte atteint (restant sous le seuil du paramétrage), "
+                     "Dépassé, ou Dépassement probable si les dossiers en attente étaient validés."),
+            ("En attente de validation", "Part mutuelle estimée des dossiers soumis ou en contrôle : ne compte pas "
+                                         "encore dans le consommé."),
+            ("Restant si tout est validé", "Restant − en attente : le solde à prévoir."),
         ),
     ),
     Tableau(

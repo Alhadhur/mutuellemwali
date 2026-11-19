@@ -2464,6 +2464,43 @@ class RapportsView(AccesBackoffice, TemplateView):
         return contexte
 
 
+def _export_excel_rapport(request, tableau, debut, fin, synthese, provisoire):
+    """Classeur Excel d'un rapport (voir exports.reponse_xlsx). Un rapport
+    qui ne suit pas la période (quotas) se lit sur le cycle de quota en
+    cours : c'est lui qui borne le fichier, et l'avertissement « mois en
+    cours » n'a pas de sens."""
+    from rapports import services as rapports_services
+
+    lignes = tableau.lignes(debut, fin)
+    libelle_periode = "Période"
+    if not tableau.suit_la_periode:
+        debut, fin = rapports_services.cycle_de_quota()
+        libelle_periode, provisoire = "Cycle de quota en cours", ""
+    if tableau.synthese_export:
+        chiffres = tableau.synthese_export(lignes)
+    else:
+        chiffres = (
+            ("Actes enregistrés", synthese["nombre_actes"]),
+            ("Agents ayant consommé", synthese["nombre_agents_consommateurs"]),
+            ("Agents actifs", synthese["nombre_agents_actifs"]),
+            ("Coût total des soins (KMF)", synthese["cout_total_soins"]),
+            ("Part mutuelle validée (KMF)", synthese["part_mutuelle"]),
+            ("Part mutuelle en attente, estimation (KMF)", synthese["part_mutuelle_en_attente"]),
+            ("Part agents (KMF)", synthese["part_agents"]),
+            ("Panier moyen (KMF)", synthese["panier_moyen"]),
+        )
+    annexes = [
+        (annexe.titre, annexe.colonnes, annexe.lignes(debut, fin))
+        for cle in tableau.annexes_export
+        for annexe in [tableaux.RAPPORTS_PAR_CLE[cle]]
+    ]
+    nom = exports.nom_de_fichier(f"rapport-{tableau.cle}", debut, fin).replace(".csv", ".xlsx")
+    return exports.reponse_xlsx(
+        nom, tableau, lignes, debut, fin, request.user.get_full_name(),
+        avertissement=provisoire or "", synthese=chiffres, annexes=annexes, libelle_periode=libelle_periode,
+    )
+
+
 class RapportsExport(AccesBackoffice, View):
     """Export CSV d'un rapport, ou du dossier complet en un seul fichier."""
 
@@ -2503,30 +2540,7 @@ class RapportsExport(AccesBackoffice, View):
         if tableau is None:
             raise Http404("Rapport inconnu.")
         if tableau.export_excel and request.GET.get("format") != "csv":
-            return exports.reponse_xlsx(
-                exports.nom_de_fichier(f"rapport-{tableau.cle}", debut, fin).replace(".csv", ".xlsx"),
-                tableau,
-                tableau.lignes(debut, fin),
-                debut,
-                fin,
-                request.user.get_full_name(),
-                avertissement=provisoire or "",
-                synthese=(
-                    ("Actes enregistrés", synthese["nombre_actes"]),
-                    ("Agents ayant consommé", synthese["nombre_agents_consommateurs"]),
-                    ("Agents actifs", synthese["nombre_agents_actifs"]),
-                    ("Coût total des soins (KMF)", synthese["cout_total_soins"]),
-                    ("Part mutuelle validée (KMF)", synthese["part_mutuelle"]),
-                    ("Part mutuelle en attente, estimation (KMF)", synthese["part_mutuelle_en_attente"]),
-                    ("Part agents (KMF)", synthese["part_agents"]),
-                    ("Panier moyen (KMF)", synthese["panier_moyen"]),
-                ),
-                annexes=[
-                    (annexe.titre, annexe.colonnes, annexe.lignes(debut, fin))
-                    for annexe in tableaux.RAPPORTS
-                    if annexe.cle == "distribution"
-                ],
-            )
+            return _export_excel_rapport(request, tableau, debut, fin, synthese, provisoire)
         return exports.reponse_csv(
             exports.nom_de_fichier(f"rapport-{tableau.cle}", debut, fin),
             tableau.colonnes,

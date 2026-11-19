@@ -118,7 +118,8 @@ class Feuille:
                 if style == ENTETE:
                     # Un en-tête peut passer à la ligne : seul son mot le
                     # plus long impose une largeur.
-                    longueur = max(len(mot) for mot in str(valeur).split())
+                    # +2 : le gras est plus large que le texte courant.
+                    longueur = max(len(mot) for mot in str(valeur).split()) + 2
                 elif isinstance(valeur, (date, datetime)):
                     longueur = 10
                 elif isinstance(valeur, int):

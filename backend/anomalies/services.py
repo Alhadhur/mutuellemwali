@@ -162,7 +162,16 @@ def _etat_quotas_agents():
 
         quota = quota_mensuel * duree_cycle
         solde = quota - consommation_par_agent.get(agent.id, 0)
-        resultats.append({"agent": agent, "quota": quota, "solde": solde})
+        resultats.append(
+            {
+                "agent": agent,
+                "quota": quota,
+                "solde": solde,
+                "quota_mensuel": quota_mensuel,
+                "avec_conjoint": avec_conjoint,
+                "nombre_enfants": nombre_enfants,
+            }
+        )
     return resultats
 
 

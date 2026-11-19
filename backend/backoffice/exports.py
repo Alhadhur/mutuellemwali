@@ -112,7 +112,8 @@ def reponse_csv_sections(nom_fichier, sections, entete=()):
     return reponse
 
 
-def reponse_xlsx(nom_fichier, tableau, lignes, debut, fin, edite_par, avertissement="", synthese=(), annexes=()):
+def reponse_xlsx(nom_fichier, tableau, lignes, debut, fin, edite_par, avertissement="", synthese=(), annexes=(),
+                 libelle_periode="Période"):
     """Classeur Excel d'un tableau, prêt à analyser.
 
     Onglet 1 : le tableau seul sous un titre court — en-tête figé, filtre
@@ -130,7 +131,7 @@ def reponse_xlsx(nom_fichier, tableau, lignes, debut, fin, edite_par, avertissem
     feuille = classeur.feuille(tableau.titre)
     feuille.ajouter([tableau.titre], xlsx.TITRE)
     feuille.ajouter(
-        [f"Période du {debut:%d/%m/%Y} au {fin:%d/%m/%Y} — édité le {timezone.localdate():%d/%m/%Y} par {edite_par}"],
+        [f"{libelle_periode} du {debut:%d/%m/%Y} au {fin:%d/%m/%Y} — édité le {timezone.localdate():%d/%m/%Y} par {edite_par}"],
         xlsx.DISCRET,
     )
     if avertissement:
@@ -161,13 +162,13 @@ def reponse_xlsx(nom_fichier, tableau, lignes, debut, fin, edite_par, avertissem
         feuille.ajouter(totaux, styles_totaux)
 
     annexe = classeur.feuille("Synthèse")
-    annexe.ajouter(["Synthèse de la période"], xlsx.TITRE)
-    annexe.ajouter([f"Du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"], xlsx.DISCRET)
+    annexe.ajouter([f"Synthèse — {tableau.titre}"], xlsx.TITRE)
+    annexe.ajouter([f"{libelle_periode} du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}"], xlsx.DISCRET)
     if avertissement:
         annexe.ajouter([avertissement], xlsx.AVERTISSEMENT)
     annexe.ajouter()
     for libelle, montant in synthese:
-        annexe.ajouter([libelle, montant], [xlsx.NORMAL, None])
+        annexe.ajouter([libelle, montant], [xlsx.NORMAL, xlsx.POURCENT if libelle.endswith("(%)") else None])
     for titre, colonnes, lignes_annexe in annexes:
         annexe.ajouter()
         annexe.ajouter([titre], xlsx.GRAS)
