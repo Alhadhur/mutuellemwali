@@ -111,7 +111,7 @@ def prestataires_volume_anormal(debut=None, fin=None):
     return volumes
 
 
-def _etat_quotas_agents():
+def _etat_quotas_agents(reference=None):
     """État de quota (enveloppe, solde) de chaque agent actif, en un nombre
     de requêtes indépendant du nombre d'agents.
 
@@ -123,9 +123,12 @@ def _etat_quotas_agents():
     anomalies, a fini par dépasser le délai du serveur en production. Cette
     fonction recalcule la même règle (voir `Agent.quota_effectif` et
     `Agent.solde_quota`) à partir de données chargées une seule fois.
+
+    `reference` : une date du cycle voulu (par défaut aujourd'hui, donc le
+    cycle en cours). La composition familiale reste celle d'aujourd'hui.
     """
     parametres = Parametrage.charger()
-    debut, fin = parametres.periode()
+    debut, fin = parametres.periode(reference)
     duree_cycle = max(1, parametres.duree_cycle_mois)
     age_limite_enfant = parametres.age_limite_enfant
     tranches = list(TrancheQuota.objects.all())

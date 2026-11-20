@@ -47,12 +47,17 @@ class Tableau:
     # synthèse d'activité de la période — et autres rapports joints (clés).
     synthese_export: Callable | None = None
     annexes_export: tuple[str, ...] = ()
+    # Rapports de quota : ils portent sur un cycle de quota entier, celui qui
+    # contient la fin de la période choisie (la source reçoit cette date).
+    par_cycle: bool = False
 
     @property
     def colonnes_affichees(self):
         return self.colonnes_ecran or self.colonnes
 
     def lignes(self, debut, fin):
+        if self.par_cycle:
+            return self.source(fin)
         return self.source(debut, fin) if self.suit_la_periode else self.source()
 
 
@@ -397,12 +402,12 @@ RAPPORTS: tuple[Tableau, ...] = (
         cle="quotas",
         titre="Utilisation des quotas",
         description=(
-            "Répartition des agents selon la part d'enveloppe consommée sur le "
-            "cycle en cours. Dit si le barème est bien calibré. Indépendant de "
-            "la période choisie."
+            "Répartition des agents selon la part d'enveloppe consommée par les "
+            "prescriptions validées sur le cycle de quota. Dit si le barème est "
+            "bien calibré."
         ),
         source=rapports.utilisation_des_quotas,
-        suit_la_periode=False,
+        par_cycle=True,
         colonnes=(
             ("Tranche de consommation", "tranche"),
             ("Agents", "agents"),
@@ -413,13 +418,13 @@ RAPPORTS: tuple[Tableau, ...] = (
         cle="quotas_agents",
         titre="Consommation des quotas par agent",
         description=(
-            "Pour chaque agent actif : enveloppe du cycle en cours, part consommée "
+            "Pour chaque agent actif : enveloppe du cycle de quota, part consommée "
             "par les prescriptions validées (soins des ayants droit compris) et "
             "solde restant, du plus consommé au moins consommé. Les dossiers en "
             "attente sont montrés à part, avec le solde après leur validation."
         ),
         source=rapports.consommation_quotas_par_agent,
-        suit_la_periode=False,
+        par_cycle=True,
         limite_ecran=20,
         colonnes=(
             ("Matricule", "matricule"),

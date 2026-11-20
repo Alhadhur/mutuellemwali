@@ -662,12 +662,64 @@ class ExportQuotasExcelTest(BaseRapports):
         feuille = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
         synthese = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
         debut, fin = Parametrage.charger().periode()
-        self.assertIn(f"Cycle de quota en cours du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}", feuille)
+        self.assertIn(f"Cycle de quota du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}", feuille)
         self.assertIn("A0001", feuille)
         self.assertIn("A0002", feuille)  # agent sans soin : il figure aussi
         self.assertIn("<v>8000</v>", feuille)
         self.assertIn("Agents ayant dépassé leur quota", synthese)
         self.assertIn("Utilisation des quotas", synthese)
+
+    def _cycle_precedent(self):
+        """Une date du cycle précédent et une prescription validée dedans
+        (cycle d'un mois : le cas par défaut du paramétrage)."""
+        from parametrage.models import Parametrage
+
+        parametres = Parametrage.charger()
+        parametres.duree_cycle_mois = 1
+        parametres.save()
+        debut_en_cours, _ = parametres.periode()
+        reference = debut_en_cours - timedelta(days=1)
+        self.prescription(
+            self.autre_agent, 20000, statut=StatutPrescription.VALIDEE,
+            jours=(date.today() - reference).days,
+        )
+        return parametres.periode(reference)
+
+    def test_une_periode_passee_montre_la_consommation_de_son_cycle(self):
+        """Des prescriptions validées le mois dernier restaient invisibles :
+        le rapport ne regardait que le cycle du jour, quelle que soit la
+        période choisie."""
+        debut, fin = self._cycle_precedent()
+
+        reponse = self.client.get(
+            reverse("backoffice:rapports"), {"debut": debut.isoformat(), "fin": fin.isoformat()}
+        )
+
+        tableaux = {t["cle"]: t for t in reponse.context["tableaux"]}
+        self.assertEqual(tableaux["quotas_agents"]["cycle"], (debut, fin))
+        self.assertContains(reponse, f"Cycle de quota du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}")
+        lignes = services.consommation_quotas_par_agent(fin)
+        autre = next(l for l in lignes if l["matricule"] == "A0002")
+        agent = next(l for l in lignes if l["matricule"] == "A0001")
+        self.assertEqual(autre["consomme"], 16000)
+        self.assertEqual(agent["consomme"], 0)  # sa prescription est du cycle en cours
+        repartition = {l["tranche"]: l["agents"] for l in services.utilisation_des_quotas(fin)}
+        self.assertEqual(repartition["0 %"], 1)
+        self.assertEqual(sum(repartition.values()), 2)
+
+    def test_l_export_d_une_periode_passee_porte_sur_son_cycle(self):
+        import zipfile
+
+        debut, fin = self._cycle_precedent()
+
+        reponse = self.client.get(
+            reverse("backoffice:rapports_export_un", args=["quotas_agents"]),
+            {"debut": debut.isoformat(), "fin": fin.isoformat()},
+        )
+
+        feuille = zipfile.ZipFile(io.BytesIO(reponse.content)).read("xl/worksheets/sheet1.xml").decode("utf-8")
+        self.assertIn(f"Cycle de quota du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}", feuille)
+        self.assertIn("<v>16000</v>", feuille)
 
     def test_l_ecran_affiche_le_tableau(self):
         reponse = self.client.get(reverse("backoffice:rapports"))

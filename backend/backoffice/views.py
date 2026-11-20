@@ -2458,6 +2458,7 @@ class RapportsView(AccesBackoffice, TemplateView):
                     "nombre_total": nombre_total,
                     "tronque": bool(tableau.limite_ecran) and nombre_total > tableau.limite_ecran,
                     "export_excel": tableau.export_excel,
+                    "cycle": rapports_services.cycle_de_quota(fin) if tableau.par_cycle else None,
                 }
             )
         contexte["tableaux"] = tableaux_contexte
@@ -2473,9 +2474,9 @@ def _export_excel_rapport(request, tableau, debut, fin, synthese, provisoire):
 
     lignes = tableau.lignes(debut, fin)
     libelle_periode = "Période"
-    if not tableau.suit_la_periode:
-        debut, fin = rapports_services.cycle_de_quota()
-        libelle_periode, provisoire = "Cycle de quota en cours", ""
+    if tableau.par_cycle:
+        debut, fin = rapports_services.cycle_de_quota(fin)
+        libelle_periode, provisoire = "Cycle de quota", ""
     if tableau.synthese_export:
         chiffres = tableau.synthese_export(lignes)
     else:

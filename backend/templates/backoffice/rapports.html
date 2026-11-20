@@ -95,7 +95,11 @@
     </h2>
     <div class="note-tableau">
       {{ tableau.description }}
-      {% if not tableau.suit_la_periode %}<em>Ce rapport ne dépend pas de la période choisie.</em>{% endif %}
+      {% if tableau.cycle %}
+        <em>Cycle de quota du {{ tableau.cycle.0|date:"d/m/Y" }} au {{ tableau.cycle.1|date:"d/m/Y" }}
+        (celui qui contient la fin de la période choisie) : seules les prescriptions validées
+        émises dans ce cycle sont comptées.</em>
+      {% elif not tableau.suit_la_periode %}<em>Ce rapport ne dépend pas de la période choisie.</em>{% endif %}
     </div>
     {% if tableau.lignes %}
       <div class="tableau-defilant">

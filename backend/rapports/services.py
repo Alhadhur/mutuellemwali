@@ -322,22 +322,24 @@ def repartition_agent_ayants_droit(debut, fin):
     ]
 
 
-def utilisation_des_quotas(debut=None, fin=None):
-    """Répartition des agents selon la part d'enveloppe consommée.
+def utilisation_des_quotas(reference=None):
+    """Répartition des agents selon la part d'enveloppe consommée sur le
+    cycle de quota contenant `reference` (par défaut le cycle en cours).
 
     Dit si le barème est calibré : beaucoup d'agents sous 25 % suggère des
     quotas trop larges, une majorité au-delà de 75 % l'inverse.
     """
+    from anomalies.services import _etat_quotas_agents
+
     tranches = (("0 %", 0, 0), ("1 à 25 %", 1, 25), ("26 à 50 %", 26, 50),
                 ("51 à 75 %", 51, 75), ("76 à 100 %", 76, 100), ("Au-delà de 100 %", 101, None))
     compteurs = {libelle: 0 for libelle, _, _ in tranches}
 
-    agents = list(Agent.objects.filter(actif=True).select_related("utilisateur"))
-    for agent in agents:
-        quota = agent.quota_effectif
+    for etat in _etat_quotas_agents(reference):
+        quota = etat["quota"]
         if quota <= 0:
             continue
-        consomme = round(100 * agent.consommation_periode() / quota)
+        consomme = round(100 * (quota - etat["solde"]) / quota)
         for libelle, mini, maxi in tranches:
             if consomme >= mini and (maxi is None or consomme <= maxi):
                 compteurs[libelle] += 1
@@ -350,8 +352,9 @@ def utilisation_des_quotas(debut=None, fin=None):
     ]
 
 
-def consommation_quotas_par_agent():
-    """Quota consommé et restant de chaque agent actif sur le cycle en cours.
+def consommation_quotas_par_agent(reference=None):
+    """Quota consommé et restant de chaque agent actif sur le cycle de quota
+    contenant `reference` (par défaut le cycle en cours).
 
     Même règle que la fiche de l'agent (Agent.solde_quota) : seules les
     prescriptions **validées** entament l'enveloppe, à hauteur de la part
@@ -366,7 +369,7 @@ def consommation_quotas_par_agent():
     from parametrage.models import Parametrage
 
     parametres = Parametrage.charger()
-    debut, fin = parametres.periode()
+    debut, fin = parametres.periode(reference)
     seuil = parametres.seuil_alerte_quota
     en_attente = (StatutPrescription.SOUMISE, StatutPrescription.EN_CONTROLE)
     detail = {
@@ -390,7 +393,7 @@ def consommation_quotas_par_agent():
     }
 
     resultats = []
-    for etat in _etat_quotas_agents():
+    for etat in _etat_quotas_agents(reference):
         agent, quota, solde = etat["agent"], etat["quota"], etat["solde"]
         ligne = detail.get(agent.pk, {})
         consomme = quota - solde
@@ -458,11 +461,12 @@ def synthese_quotas(lignes):
     )
 
 
-def cycle_de_quota():
-    """Bornes du cycle de quota en cours, pour les titres d'écran et d'export."""
+def cycle_de_quota(reference=None):
+    """Bornes du cycle de quota contenant `reference` (par défaut le cycle en
+    cours), pour les titres d'écran et d'export."""
     from parametrage.models import Parametrage
 
-    return Parametrage.charger().periode()
+    return Parametrage.charger().periode(reference)
 
 
 def activite_du_service(debut, fin):
